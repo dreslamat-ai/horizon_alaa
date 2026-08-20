@@ -7,10 +7,17 @@ import { requireStaffSession } from "@/lib/auth/session";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 const ADMIN_ONLY_PREFIXES = ["/settings", "/api/settings"];
+// أصول ثابتة من public/ (زي أفاتار ألاء) — عُرِف حيًا: كانت بتتحوّل لـ/login
+// لأن matcher الأصلي استثنى _next/* بس، مش ملفات public/ نفسها.
+const STATIC_FILE_RE = /\.(png|jpg|jpeg|svg|ico|webp|gif)$/;
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC_PATHS.some(p => pathname === p) || pathname.startsWith("/_next")) {
+  if (
+    PUBLIC_PATHS.some(p => pathname === p) ||
+    pathname.startsWith("/_next") ||
+    STATIC_FILE_RE.test(pathname)
+  ) {
     return NextResponse.next();
   }
 
