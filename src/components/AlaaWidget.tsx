@@ -2,9 +2,14 @@
 
 // ─── واجهة "ألاء" — زر عائم + لوحة منزلقة ─────────────────────────────────────
 // مستوحاة من resources/views/partials/shahd_widget.blade.php (almoaser-site،
-// قُرئت ١٩ أغسطس ٢٠٢٦). مرحلة ٢: اختيار "العميل الحالي" قبل بدء المحادثة
-// (خطة "ألاء" القسم ٣/٧) — كل رسالة تُرسَل باسم عميل محدد، والرصيد يُعرض
-// في الرأس فيراه الموظف قبل ما ينفد لا بعده.
+// قُرئت ١٩ أغسطس ٢٠٢٦).
+//
+// 🔴 مراجَعة جوهرية (٢١ أغسطس) بطلب صريح من المالك بعد رفض قاطع لتصميم
+// "اختيار عميل" السابق: "زي شهد يا غبي زي سارة" — لا واجهة اختيار
+// إطلاقًا. كل site (subdomain) مرتبط بعميل واحد عبر erpUrl، فالهوية
+// تُعرَف صامتة من مكان فتح الودجت لا من اختيار داخل المحادثة. اسم
+// العميل ورصيده وحالته يُعرَضون تلقائيًا (طلب صريح آخر: "في رصيد ونقاط
+// واسم عميل يا غبي")، لكن بلا أي <select> أو قائمة يتفاعل معها أحد.
 import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/apiPath";
 
@@ -46,6 +51,7 @@ export default function AlaaWidget() {
   const embedded = isEmbeddedInIframe();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState<number | null>(null);
+  const [loaded, setLoaded] = useState(false); // يفرّق "لسه بيحمّل" عن "مفيش تطابق فعلاً"
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -58,29 +64,20 @@ export default function AlaaWidget() {
       .then((data: { customers?: Customer[] }) => {
         const list = data.customers ?? [];
         setCustomers(list);
-        // site معروف من مكان فتح الزر (زي e.horizonerp.cloud) — لو عميل
-        // واحد بالظبط يطابقه، يُختار تلقائيًا بدل ما يُسأل الموظف عمّا
-        // يعرفه النظام أصلاً من مكان الفتح. window.location.search لا
-        // useSearchParams عمدًا: يتفادى الحاجة لـSuspense boundary هنا.
+        // site معروف من مكان فتح الزر (زي e.horizonerp.cloud) — هو
+        // المصدر الوحيد لتحديد العميل، بلا أي اختيار من المستخدم.
+        // window.location.search لا useSearchParams عمدًا: يتفادى
+        // الحاجة لـSuspense boundary هنا.
         const site = new URLSearchParams(window.location.search).get("site");
-        if (site) {
-          const matches = list.filter(c => c.erpUrl?.includes(site));
-          if (matches.length === 1) setCustomerId(matches[0].id);
-        }
+        const matches = site ? list.filter(c => c.erpUrl?.includes(site)) : [];
+        if (matches.length === 1) setCustomerId(matches[0].id);
+        setLoaded(true);
       });
   }, []);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [messages, busy]);
-
-  // تغيير العميل يبدأ محادثة جديدة — سياق عميل سابق لا يجوز أن يُكمَل مع
-  // عميل آخر، حتى بالخطأ.
-  function switchCustomer(id: number) {
-    setCustomerId(id);
-    setMessages([]);
-    setShowChips(true);
-  }
 
   async function send(text: string) {
     const trimmed = text.trim();
@@ -155,37 +152,19 @@ export default function AlaaWidget() {
             )}
           </div>
 
-          <div className="shrink-0 border-b border-[#e6eaf1] px-3.5 py-2.5 bg-[#f6f8fb] flex flex-col gap-1.5">
-            {/* عميل واحد بس ⇐ لا داعي للاختيار أصلاً؛ اسمه يظهر كنص لا
-                قائمة — سؤال المالك: "أنا فاتح من شركة، ليه أختارها تاني؟" */}
-            {customers.length > 1 ? (
-              <>
-                <label className="text-xs text-gray-600">العميل الذي تخدمه الآن</label>
-                <select
-                  value={customerId ?? ""}
-                  onChange={e => switchCustomer(Number(e.target.value))}
-                  className="border border-[#dfe4ec] rounded-lg px-2 py-1.5 text-sm bg-white"
-                >
-                  <option value="" disabled>اختر عميلاً…</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.companyNameAr}</option>
-                  ))}
-                </select>
-              </>
-            ) : currentCustomer ? (
+          {currentCustomer && (
+            <div className="shrink-0 border-b border-[#e6eaf1] px-3.5 py-2.5 bg-[#f6f8fb] flex flex-col gap-1.5">
               <div className="text-sm font-semibold text-[#1D2D44]">{currentCustomer.companyNameAr}</div>
-            ) : null}
-            {currentCustomer && (
               <div className="text-[11px] text-gray-500 flex justify-between">
                 <span>رصيد النقاط: <b className="text-[#1D2D44]">{currentCustomer.creditsBalance}</b></span>
                 <span>{currentCustomer.subscriptionStatus === "active" ? "🟢 نشط" : currentCustomer.subscriptionStatus}</span>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <div ref={logRef} className="flex-1 overflow-y-auto p-3.5 bg-[#f6f8fb] flex flex-col gap-2.5">
-            {!customerId && (
-              <div className="text-center text-sm text-gray-400 mt-8">اختر عميلاً من فوق عشان تبدأ</div>
+            {loaded && !customerId && (
+              <div className="text-center text-sm text-gray-400 mt-8">مفيش اشتراك مفعَّل لهذا الموقع — تواصل مع إدارة Horizon</div>
             )}
             {customerId && messages.length === 0 && (
               <div className="max-w-[85%] rounded-2xl rounded-ss-sm bg-white border border-[#e6eaf1] px-3 py-2.5 text-[#1D2D44] leading-relaxed">
@@ -232,7 +211,7 @@ export default function AlaaWidget() {
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder={customerId ? "اكتب رسالتك…" : "اختر عميلاً أولاً"}
+              placeholder={customerId ? "اكتب رسالتك…" : "مفيش اشتراك مفعَّل"}
               maxLength={1500}
               disabled={!customerId}
               className="flex-1 border border-[#dfe4ec] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#1D2D44] disabled:bg-gray-50"
