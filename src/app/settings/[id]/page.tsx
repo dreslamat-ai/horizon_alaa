@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { API_BASE } from "@/lib/apiPath";
 
 type Customer = {
   id: number; companyNameAr: string; companyNameEn: string | null;
@@ -26,7 +27,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ id: s
   const [msg, setMsg] = useState<string | null>(null);
 
   async function load() {
-    const res = await fetch("/api/settings/customers");
+    const res = await fetch(`${API_BASE}/api/settings/customers`);
     const data = (await res.json()) as { customers?: Customer[] };
     setCustomer(data.customers?.find(c => c.id === Number(id)) ?? null);
   }
@@ -37,7 +38,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ id: s
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch(`/api/settings/customers/${id}`, {
+      const res = await fetch(`${API_BASE}/api/settings/customers/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -57,7 +58,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ id: s
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch(`/api/settings/customers/${id}/credits`, {
+      const res = await fetch(`${API_BASE}/api/settings/customers/${id}/credits`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount }),

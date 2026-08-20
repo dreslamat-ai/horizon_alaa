@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { API_BASE } from "@/lib/apiPath";
 
 type Staff = { id: number; email: string; name: string; role: "support" | "admin"; isActive: boolean };
 
@@ -12,7 +13,7 @@ export default function StaffPage() {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const res = await fetch("/api/settings/staff");
+    const res = await fetch(`${API_BASE}/api/settings/staff`);
     const data = (await res.json()) as { staff?: Staff[] };
     setList(data.staff ?? []);
   }
@@ -24,7 +25,7 @@ export default function StaffPage() {
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch("/api/settings/staff", {
+      const res = await fetch(`${API_BASE}/api/settings/staff`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -41,7 +42,7 @@ export default function StaffPage() {
   async function patch(id: number, body: Record<string, unknown>) {
     setBusy(true);
     try {
-      const res = await fetch(`/api/settings/staff/${id}`, {
+      const res = await fetch(`${API_BASE}/api/settings/staff/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

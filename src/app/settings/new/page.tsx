@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { API_BASE } from "@/lib/apiPath";
 
 type Plan = { id: number; nameAr: string; monthlyCreditsAllowance: number };
 
@@ -18,7 +19,7 @@ export default function NewCustomerPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/settings/plans").then(r => r.json()).then((d: { plans?: Plan[] }) => {
+    fetch(`${API_BASE}/api/settings/plans`).then(r => r.json()).then((d: { plans?: Plan[] }) => {
       setPlans(d.plans ?? []);
       if (d.plans?.length) setForm(f => ({ ...f, planId: String(d.plans![0].id) }));
     });
@@ -33,7 +34,7 @@ export default function NewCustomerPage() {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch("/api/settings/erp-test", {
+      const res = await fetch(`${API_BASE}/api/settings/erp-test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: form.erpUrl, username: form.erpUsername, password: form.erpPassword }),
@@ -55,7 +56,7 @@ export default function NewCustomerPage() {
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch("/api/settings/customers", {
+      const res = await fetch(`${API_BASE}/api/settings/customers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

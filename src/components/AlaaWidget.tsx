@@ -6,6 +6,7 @@
 // (خطة "ألاء" القسم ٣/٧) — كل رسالة تُرسَل باسم عميل محدد، والرصيد يُعرض
 // في الرأس فيراه الموظف قبل ما ينفد لا بعده.
 import { useEffect, useRef, useState } from "react";
+import { API_BASE } from "@/lib/apiPath";
 
 type Msg = { role: "user" | "assistant" | "error"; content: string };
 type Customer = { id: number; companyNameAr: string; subscriptionStatus: string; creditsBalance: number };
@@ -23,7 +24,7 @@ export default function AlaaWidget() {
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/customers")
+    fetch(`${API_BASE}/api/customers`)
       .then(r => r.json())
       .then((data: { customers?: Customer[] }) => setCustomers(data.customers ?? []));
   }, []);
@@ -49,7 +50,7 @@ export default function AlaaWidget() {
     setInput("");
     setBusy(true);
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
