@@ -156,17 +156,25 @@ export default function AlaaWidget() {
           </div>
 
           <div className="shrink-0 border-b border-[#e6eaf1] px-3.5 py-2.5 bg-[#f6f8fb] flex flex-col gap-1.5">
-            <label className="text-xs text-gray-600">العميل الذي تخدمه الآن</label>
-            <select
-              value={customerId ?? ""}
-              onChange={e => switchCustomer(Number(e.target.value))}
-              className="border border-[#dfe4ec] rounded-lg px-2 py-1.5 text-sm bg-white"
-            >
-              <option value="" disabled>اختر عميلاً…</option>
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>{c.companyNameAr}</option>
-              ))}
-            </select>
+            {/* عميل واحد بس ⇐ لا داعي للاختيار أصلاً؛ اسمه يظهر كنص لا
+                قائمة — سؤال المالك: "أنا فاتح من شركة، ليه أختارها تاني؟" */}
+            {customers.length > 1 ? (
+              <>
+                <label className="text-xs text-gray-600">العميل الذي تخدمه الآن</label>
+                <select
+                  value={customerId ?? ""}
+                  onChange={e => switchCustomer(Number(e.target.value))}
+                  className="border border-[#dfe4ec] rounded-lg px-2 py-1.5 text-sm bg-white"
+                >
+                  <option value="" disabled>اختر عميلاً…</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.companyNameAr}</option>
+                  ))}
+                </select>
+              </>
+            ) : currentCustomer ? (
+              <div className="text-sm font-semibold text-[#1D2D44]">{currentCustomer.companyNameAr}</div>
+            ) : null}
             {currentCustomer && (
               <div className="text-[11px] text-gray-500 flex justify-between">
                 <span>رصيد النقاط: <b className="text-[#1D2D44]">{currentCustomer.creditsBalance}</b></span>
