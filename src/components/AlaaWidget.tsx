@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/apiPath";
 
 type Msg = { role: "user" | "assistant" | "error"; content: string };
-type Customer = { id: number; companyNameAr: string; subscriptionStatus: string; creditsBalance: number };
+type Customer = { id: number; companyNameAr: string; subscriptionStatus: string; creditsBalance: number; erpUrl?: string };
 
 const STARTERS = ["اعرضلي أسماء الموظفين", "دور على عميل باسمه", "قائمة الأصناف"];
 
@@ -55,7 +55,19 @@ export default function AlaaWidget() {
   useEffect(() => {
     fetch(`${API_BASE}/api/customers`)
       .then(r => r.json())
-      .then((data: { customers?: Customer[] }) => setCustomers(data.customers ?? []));
+      .then((data: { customers?: Customer[] }) => {
+        const list = data.customers ?? [];
+        setCustomers(list);
+        // site معروف من مكان فتح الزر (زي e.horizonerp.cloud) — لو عميل
+        // واحد بالظبط يطابقه، يُختار تلقائيًا بدل ما يُسأل الموظف عمّا
+        // يعرفه النظام أصلاً من مكان الفتح. window.location.search لا
+        // useSearchParams عمدًا: يتفادى الحاجة لـSuspense boundary هنا.
+        const site = new URLSearchParams(window.location.search).get("site");
+        if (site) {
+          const matches = list.filter(c => c.erpUrl?.includes(site));
+          if (matches.length === 1) setCustomerId(matches[0].id);
+        }
+      });
   }, []);
 
   useEffect(() => {

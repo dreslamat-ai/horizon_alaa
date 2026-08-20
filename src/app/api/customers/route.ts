@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
     companyNameAr: schema.alaaCustomers.companyNameAr,
     subscriptionStatus: schema.alaaCustomers.subscriptionStatus,
     creditsBalance: schema.alaaCustomers.creditsBalance,
+    erpUrl: schema.alaaCustomers.erpUrl, // لمطابقة site الحالي واختيار العميل تلقائيًا
   }).from(schema.alaaCustomers);
 
   return NextResponse.json({ customers: rows });

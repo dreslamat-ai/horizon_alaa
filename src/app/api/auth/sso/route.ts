@@ -20,6 +20,7 @@ function absoluteUrl(req: NextRequest, path: string): URL {
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
+  const site = req.nextUrl.searchParams.get("site");
   const email = await verifySsoToken(token);
 
   const loginUrl = absoluteUrl(req, "/login");
@@ -28,7 +29,12 @@ export async function GET(req: NextRequest) {
   const session = await getActiveStaffByEmail(email);
   if (!session) return NextResponse.redirect(loginUrl);
 
-  const res = NextResponse.redirect(absoluteUrl(req, "/"));
+  // site معروف من مكان الفتح (زي e.horizonerp.cloud) — يُمرَّر للصفحة
+  // الرئيسية عشان تختار العميل المطابق تلقائيًا بدل ما تسأل الموظف.
+  const homeUrl = absoluteUrl(req, "/");
+  if (site) homeUrl.searchParams.set("site", site);
+
+  const res = NextResponse.redirect(homeUrl);
   res.cookies.set(SESSION_COOKIE, await createSessionToken(session), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
