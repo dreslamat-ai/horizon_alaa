@@ -5,26 +5,30 @@ import { createSessionToken, getActiveStaffByEmail, SESSION_COOKIE, SESSION_MAX_
 // مستخدم Frappe غير مسجَّل في horizon_staff (زي العميل صاحب الموقع نفسه)
 // يوصله هنا بلا أي جلسة — التحويل النهائي لصفحة الدخول العادية، لا خطأ.
 //
-// عُطل حي (٢٠ أغسطس): new URL(path, req.url) رجّعت https://localhost:4001/
-// بدل الدومين الحقيقي — Route Handler عادي (Node runtime) مايثقش بهيدر
-// Host الممرَّر من nginx زي ما middleware (Edge) بيعمل. req.nextUrl.clone()
-// هو المسار المضمون الوحيد هنا.
+// عُطل حي (٢٠ أغسطس)، قيسناه بـ/api/debug-headers مؤقّت: في `next start`
+// خلف nginx، req.url/req.nextUrl.origin بيتبنيا من عنوان الـsocket
+// المحلي (127.0.0.1:4001) دايمًا — حتى لو هيدر Host/X-Forwarded-*
+// واصل صح (وهو واصل فعلاً، اتأكّد بالقياس). المشكلة في Route Handler
+// عادي (Node runtime) تحديدًا، لا middleware (Edge) — proxy.ts بيشتغل
+// صح لأنه بيتعامل مع الهيدرز بطريقة مختلفة. الحل الوحيد الموثوق هنا:
+// بناء الرابط يدويًا من x-forwarded-proto/host، مش من req.url إطلاقًا.
+function absoluteUrl(req: NextRequest, path: string): URL {
+  const proto = req.headers.get("x-forwarded-proto") ?? "https";
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  return new URL(`/alaa${path}`, `${proto}://${host}`);
+}
+
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
   const email = await verifySsoToken(token);
 
-  const loginUrl = req.nextUrl.clone();
-  loginUrl.pathname = "/login";
-  loginUrl.search = "";
+  const loginUrl = absoluteUrl(req, "/login");
   if (!email) return NextResponse.redirect(loginUrl);
 
   const session = await getActiveStaffByEmail(email);
   if (!session) return NextResponse.redirect(loginUrl);
 
-  const homeUrl = req.nextUrl.clone();
-  homeUrl.pathname = "/";
-  homeUrl.search = "";
-  const res = NextResponse.redirect(homeUrl);
+  const res = NextResponse.redirect(absoluteUrl(req, "/"));
   res.cookies.set(SESSION_COOKIE, await createSessionToken(session), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
