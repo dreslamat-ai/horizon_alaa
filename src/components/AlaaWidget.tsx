@@ -13,6 +13,26 @@ type Customer = { id: number; companyNameAr: string; subscriptionStatus: string;
 
 const STARTERS = ["اعرضلي أسماء الموظفين", "دور على عميل باسمه", "قائمة الأصناف"];
 
+/**
+ * تنسيق ماركداون محدود بعد التهريب — منقولة بتصرّف من fmt() في
+ * shahd_widget.blade.php (almoaser-site). كانت غائبة تمامًا هنا: ردود
+ * النموذج تحمل ماركداون بطبعها (جداول، **تشديد**)، وكانت تظهر خامًا
+ * («**كل المبيعات**» حرفيًا) — نفس عطل شهد الموثَّق (٢٦ من ١٠٥ ردًا).
+ * التهريب أولاً ثم الاستبدال، لا العكس — وإلا نجا HTML من رسالة مستخدم.
+ */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+
+function formatMessage(s: string): string {
+  let h = escapeHtml(s);
+  h = h.replace(/^\s*#{1,4}\s*(.+)$/gm, '<b class="block mt-2 mb-1 first:mt-0">$1</b>');
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  h = h.replace(/^\s*[-*·]\s+/gm, "• ");
+  h = h.replace(/\n/g, "<br>");
+  return h;
+}
+
 // جوّا iframe (زرّ desk في horizon_desk_theme بيحمّل الصفحة الرئيسية
 // كاملة داخل لوحته المنزلقة الخاصة) — الزر العائم هنا مكرَّر بلا فائدة،
 // فاللوحة تُفتَح تلقائيًا وتملأ المساحة، والزرّ يختفي.
@@ -156,16 +176,18 @@ export default function AlaaWidget() {
               <div
                 key={i}
                 className={
-                  "max-w-[85%] rounded-2xl px-3 py-2.5 leading-relaxed whitespace-pre-wrap " +
+                  "max-w-[85%] rounded-2xl px-3 py-2.5 leading-relaxed " +
+                  (m.role === "assistant" ? "" : "whitespace-pre-wrap ") +
                   (m.role === "user"
                     ? "bg-[#1D2D44] text-white self-end rounded-se-sm"
                     : m.role === "error"
                       ? "bg-[#fdeaea] text-[#a33] border border-[#f5c6c6]"
                       : "bg-white text-[#1D2D44] border border-[#e6eaf1] rounded-ss-sm")
                 }
-              >
-                {m.content}
-              </div>
+                {...(m.role === "assistant"
+                  ? { dangerouslySetInnerHTML: { __html: formatMessage(m.content) } }
+                  : { children: m.content })}
+              />
             ))}
             {busy && (
               <div className="max-w-[85%] rounded-2xl rounded-ss-sm bg-white border border-[#e6eaf1] px-3 py-2.5 flex gap-1">

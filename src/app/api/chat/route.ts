@@ -13,6 +13,7 @@ import { narrowToolsByErpPermissions } from "@/lib/agent/toolPermissions";
 import { executeTool } from "@/lib/agent/executeTool";
 import { invokeAgentLLM } from "@/lib/llm/llmProvider";
 import { outcomeOf, verifyReply, summarizeOutcomes, type ToolOutcome } from "@/lib/agent/outcomeGuard";
+import { isUsableReply, UNUSABLE_REPLY_FALLBACK } from "@/lib/agent/replyGuard";
 
 type ChatMessage = { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string };
 
@@ -64,7 +65,8 @@ export async function POST(req: NextRequest) {
         if (!msg.tool_calls || msg.tool_calls.length === 0) {
           const rawText = typeof msg.content === "string" ? msg.content : "";
           const verdict = verifyReply(rawText, outcomes);
-          const replyText = verdict.ok ? rawText : verdict.replacement;
+          let replyText = verdict.ok ? rawText : verdict.replacement;
+          if (!isUsableReply(replyText)) replyText = UNUSABLE_REPLY_FALLBACK;
           // الخصم بعد نجاح الرد فقط — لا قبل، ولا عند فشل النموذج
           await deductCredits(customer.id, MESSAGE_COST, staff.id);
           return NextResponse.json({ reply: replyText, toolResults, creditsBalance: customer.creditsBalance - MESSAGE_COST });
