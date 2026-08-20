@@ -5,11 +5,38 @@
 // في هذه المرحلة — تحسين مؤجَّل لمرحلة لاحقة، ليس نسياناً.
 import { erpGET } from "../erp/erpClient";
 
+/**
+ * حجب صريح في الكود — دفاع مستقل عن صلاحيات حساب الاتصال في ERPNext.
+ *
+ * اكتُشف فعليًا (استعلام مباشر على tabHas Role، لا افتراض) أن حساب
+ * الاختبار الحالي (mthgo103@gmail.com) يحمل أدوارًا أوسع بكثير من "موظف
+ * محدود": Manufacturing Manager وStock User وManufacturing User —
+ * ليست القراءة المحدودة المفترَضة في القرار القديم الموثَّق. صلاحيات
+ * ERPNext نفسها هي الحاجز الأول (استعلام يتجاوزها يرجع PermissionError)،
+ * لكن الاعتماد عليها وحدها خطأ: حساب لموظف Horizon مستقبلي قد يُمنح
+ * صلاحيات أوسع لسبب عملي (تشغيل النظام)، وهذا لا يعني أن "ألاء" يجوز أن
+ * تسرد بيانات رواتب وحسابات مستخدمين لموظف دعم يستعلم نيابةً عن عميل.
+ * القائمة هنا **مستقلة تمامًا** عن أي صلاحية ERPNext — تُرفض دائمًا بغض
+ * النظر عمّا يسمح به حساب الاتصال.
+ */
+const BLOCKED_DOCTYPES = new Set([
+  "Salary Slip", "Salary Structure", "Salary Structure Assignment",
+  "Salary Component", "Employee Advance", "Loan", "Loan Application",
+  "User", "Role", "Role Profile", "User Permission",
+  "Employee Tax Exemption Declaration", "Employee Tax Exemption Proof Submission",
+]);
+
 export async function executeTool(name: string, args: Record<string, unknown>): Promise<{ result: unknown; display: string }> {
   switch (name) {
     case "list_documents": {
       const doctype = String(args.doctype ?? "").trim();
       if (!doctype) throw new Error("اسم DocType مطلوب");
+      if (BLOCKED_DOCTYPES.has(doctype)) {
+        return {
+          result: { error: `القراءة من "${doctype}" غير متاحة لألاء — بيانات حساسة (رواتب/حسابات مستخدمين) خارج نطاقها دائمًا` },
+          display: "",
+        };
+      }
       const fields = Array.isArray(args.fields) && args.fields.length
         ? (args.fields as string[]).map(String)
         : ["name"];
