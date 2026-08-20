@@ -8,7 +8,7 @@ import { requireStaffSession } from "@/lib/auth/session";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (PUBLIC_PATHS.some(p => pathname === p) || pathname.startsWith("/_next")) {
     return NextResponse.next();
