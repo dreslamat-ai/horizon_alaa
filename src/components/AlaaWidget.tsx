@@ -13,8 +13,17 @@ type Customer = { id: number; companyNameAr: string; subscriptionStatus: string;
 
 const STARTERS = ["اعرضلي أسماء الموظفين", "دور على عميل باسمه", "قائمة الأصناف"];
 
+// جوّا iframe (زرّ desk في horizon_desk_theme بيحمّل الصفحة الرئيسية
+// كاملة داخل لوحته المنزلقة الخاصة) — الزر العائم هنا مكرَّر بلا فائدة،
+// فاللوحة تُفتَح تلقائيًا وتملأ المساحة، والزرّ يختفي.
+function isEmbeddedInIframe(): boolean {
+  if (typeof window === "undefined") return false;
+  try { return window.self !== window.top; } catch { return true; }
+}
+
 export default function AlaaWidget() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(isEmbeddedInIframe);
+  const embedded = isEmbeddedInIframe();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -78,22 +87,26 @@ export default function AlaaWidget() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        aria-label="تحدّث مع ألاء"
-        className="fixed bottom-5 z-50 w-14 h-14 rounded-full overflow-hidden shadow-lg hover:opacity-90 transition"
-        style={{ insetInlineEnd: "20px" }}
-      >
-        <img src={`${API_BASE}/alaa-avatar.png`} alt="" className="w-full h-full object-cover" />
-      </button>
+      {!embedded && (
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-label="تحدّث مع ألاء"
+          className="fixed bottom-5 z-50 w-14 h-14 rounded-full overflow-hidden shadow-lg hover:opacity-90 transition"
+          style={{ insetInlineEnd: "20px" }}
+        >
+          <img src={`${API_BASE}/alaa-avatar.png`} alt="" className="w-full h-full object-cover" />
+        </button>
+      )}
 
       {open && (
         <div
           role="dialog"
           aria-label="محادثة ألاء"
-          className="fixed bottom-24 z-50 w-[360px] max-w-[calc(100vw-32px)] h-[560px] max-h-[calc(100vh-120px)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-          style={{ insetInlineEnd: "20px" }}
+          className={embedded
+            ? "fixed inset-0 z-50 bg-white flex flex-col overflow-hidden"
+            : "fixed bottom-24 z-50 w-[360px] max-w-[calc(100vw-32px)] h-[560px] max-h-[calc(100vh-120px)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"}
+          style={embedded ? undefined : { insetInlineEnd: "20px" }}
         >
           <div className="bg-[#1D2D44] text-white px-3.5 py-3 flex items-center gap-2.5 shrink-0">
             <div className="w-8 h-8 rounded-full overflow-hidden shrink-0">
@@ -103,9 +116,11 @@ export default function AlaaWidget() {
               <b className="block text-[15px] leading-tight">ألاء</b>
               <small className="opacity-75 text-[11.5px]">مساعدة Horizon الذكية</small>
             </div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="إغلاق" className="text-white text-xl leading-none px-1">
-              ×
-            </button>
+            {!embedded && (
+              <button type="button" onClick={() => setOpen(false)} aria-label="إغلاق" className="text-white text-xl leading-none px-1">
+                ×
+              </button>
+            )}
           </div>
 
           <div className="shrink-0 border-b border-[#e6eaf1] px-3.5 py-2.5 bg-[#f6f8fb] flex flex-col gap-1.5">
