@@ -1,11 +1,12 @@
-// ─── نقطة محادثة "ألاء" ──────────────────────────────────────────────────────
+// ─── نقطة محادثة "ألاء" — مرحلة ٢: عميل مختار + إنفاذ اشتراك/نقاط ────────────
 // حلقة استدعاء الأدوات مبسَّطة عن almoaser-dev/server/routers/agent.ts
-// (قُرئت ١٩-٢٠ أغسطس ٢٠٢٦، سطور ٢٦٣-٤٥٦) — نفس البنية (حلقة حتى ٨ مرات،
-// invokeAgentLLM بالأدوات، تنفيذ tool_calls، verifyReply قبل التسليم)
-// بلا نظام النقاط/الصلاحيات/المنصات (يُضاف في مراحل لاحقة حسب الخطة).
+// (قُرئت ١٩-٢٠ أغسطس ٢٠٢٦). الإضافة عن مرحلة ١: assertAlaaAccessAllowed
+// يُستدعى أولًا (قبل أي استدعاء لنموذج اللغة)، وrunWithCustomerConfig
+// يبني الاتصال من alaa_customers بدل env ثابت.
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaffSession } from "@/lib/auth/session";
-import { runWithFixedConfig } from "@/lib/erp/erpClient";
+import { runWithCustomerConfig } from "@/lib/erp/erpClient";
+import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
 import { modeRules, identityLine } from "@/lib/agent/agentModes";
 import { TOOLS } from "@/lib/agent/toolDefinitions";
 import { executeTool } from "@/lib/agent/executeTool";
@@ -20,10 +21,19 @@ export async function POST(req: NextRequest) {
   const staff = await requireStaffSession(req);
   if (!staff) return NextResponse.json({ error: "لازم تسجّل دخولك أولاً" }, { status: 401 });
 
-  const body = (await req.json().catch(() => null)) as { messages?: ChatMessage[] } | null;
+  const body = (await req.json().catch(() => null)) as { customerId?: number; messages?: ChatMessage[] } | null;
+  if (!body?.customerId) return NextResponse.json({ error: "لازم تختار عميل أولاً" }, { status: 400 });
   if (!body?.messages?.length) return NextResponse.json({ error: "الرسائل مطلوبة" }, { status: 400 });
 
-  const systemPrompt = `${identityLine}\n\n${modeRules()}`;
+  // ─── الفحص الحاسم: قبل أي استدعاء لنموذج اللغة، لا بعده ───────────────────
+  const access = await assertAlaaAccessAllowed(body.customerId);
+  if (!access.ok) {
+    const status = access.reason === "not_found" ? 404 : access.reason === "credits_exhausted" ? 402 : 403;
+    return NextResponse.json({ error: access.message, reason: access.reason }, { status });
+  }
+  const customer = access.customer;
+
+  const systemPrompt = `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${customer.companyNameAr}**.\n\n${modeRules()}`;
   const llmMessages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
     ...body.messages,
@@ -33,7 +43,7 @@ export async function POST(req: NextRequest) {
   const toolResults: Array<{ tool_name: string; display: string }> = [];
 
   try {
-    return await runWithFixedConfig(async () => {
+    return await runWithCustomerConfig(customer.id, async () => {
       for (let iter = 0; iter < MAX_ITER; iter++) {
         const response = await invokeAgentLLM({
           messages: llmMessages,
@@ -51,14 +61,12 @@ export async function POST(req: NextRequest) {
           const rawText = typeof msg.content === "string" ? msg.content : "";
           const verdict = verifyReply(rawText, outcomes);
           const replyText = verdict.ok ? rawText : verdict.replacement;
-          return NextResponse.json({ reply: replyText, toolResults });
+          // الخصم بعد نجاح الرد فقط — لا قبل، ولا عند فشل النموذج
+          await deductCredits(customer.id, MESSAGE_COST);
+          return NextResponse.json({ reply: replyText, toolResults, creditsBalance: customer.creditsBalance - MESSAGE_COST });
         }
 
-        llmMessages.push({
-          role: "assistant",
-          content: "",
-          tool_calls: msg.tool_calls,
-        });
+        llmMessages.push({ role: "assistant", content: "", tool_calls: msg.tool_calls });
 
         for (const tc of msg.tool_calls as Array<{ id?: string; index?: number; function: { name: string; arguments: string } }>) {
           const tcId = tc.id ?? `call_${tc.index ?? Math.random().toString(36).slice(2)}`;
@@ -80,7 +88,8 @@ export async function POST(req: NextRequest) {
       }
 
       const fallbackReply = summarizeOutcomes(outcomes);
-      return NextResponse.json({ reply: fallbackReply, toolResults });
+      await deductCredits(customer.id, MESSAGE_COST);
+      return NextResponse.json({ reply: fallbackReply, toolResults, creditsBalance: customer.creditsBalance - MESSAGE_COST });
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "خطأ غير متوقع";

@@ -1,24 +1,23 @@
 // عميل HTTP لـERPNext + سياق AsyncLocalStorage — منقولة بتصرّف من
-// almoaser-dev/server/agent/erpClient.ts (قُرئت ١٩-٢٠ أغسطس ٢٠٢٦). الفرق
-// الجوهري: هناك `runWithErpConfig(userId, fn)` يجيب اتصال كل مستخدم من
-// جدول erpnextConnections، وهنا `runWithFixedConfig(fn)` يستخدم الاتصال
-// الثابت الوحيد (fixedErpConfig) — يتغيّر في مرحلة ٢ لاتصال لكل عميل.
+// almoaser-dev/server/agent/erpClient.ts (قُرئت ١٩-٢٠ أغسطس ٢٠٢٦).
+// مرحلة ٢: runWithCustomerConfig(customerId, fn) يبني الاتصال من صف
+// alaa_customers — يحلّ محلّ runWithFixedConfig المرحلة ١.
 import { AsyncLocalStorage } from "async_hooks";
-import { fixedErpConfig, getErpSession, invalidateErpSession, type ErpConfig } from "./erpConnection";
+import { getErpConfigForCustomer, getErpSession, invalidateErpSession, type ErpConfig } from "./erpConnection";
 
 const ERROR_KEEP = 4000;
 
 export const erpContext = new AsyncLocalStorage<ErpConfig>();
 
-export async function runWithFixedConfig<T>(fn: () => Promise<T>): Promise<T> {
-  const config = fixedErpConfig();
+export async function runWithCustomerConfig<T>(customerId: number, fn: () => Promise<T>): Promise<T> {
+  const config = await getErpConfigForCustomer(customerId);
   return erpContext.run(config, fn);
 }
 
 export function currentErpConfig(): ErpConfig {
   const cfg = erpContext.getStore();
-  if (cfg) return cfg;
-  return fixedErpConfig();
+  if (!cfg) throw new Error("لا يوجد اتصال ERPNext نشط — استدعاء executeTool لازم يكون داخل runWithCustomerConfig");
+  return cfg;
 }
 
 async function getSession(): Promise<string> {
@@ -34,7 +33,7 @@ export async function erpGET(path: string): Promise<unknown> {
   const sid = await getSession();
   const res = await fetch(`${url}${path}`, { headers: { Cookie: `sid=${sid}` } });
   if (res.status === 401 || res.status === 403) {
-    invalidateErpSession();
+    invalidateErpSession(currentErpConfig());
     const sid2 = await getSession();
     const res2 = await fetch(`${url}${path}`, { headers: { Cookie: `sid=${sid2}` } });
     if (!res2.ok) throw new Error(`ERPNext GET error ${res2.status}`);
