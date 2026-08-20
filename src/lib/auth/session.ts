@@ -78,6 +78,19 @@ export async function checkStaffCredentials(email: string, password: string): Pr
 }
 
 /**
+ * لمسار SSO فقط — الهوية مُثبَتة مسبقًا (توقيع HMAC + جلسة Frappe)، فلا
+ * تحقّق من كلمة سر هنا. الدور يُقرأ من نفس الصف تمامًا كالدخول العادي،
+ * فلا فرق في مستوى الصلاحية الممنوحة بين الطريقتين — الفرق فقط في كيف
+ * أُثبتت الهوية.
+ */
+export async function getActiveStaffByEmail(email: string): Promise<StaffSession | null> {
+  const rows = await db.select().from(schema.horizonStaff).where(eq(schema.horizonStaff.email, email)).limit(1);
+  const staff = rows[0];
+  if (!staff || !staff.isActive) return null;
+  return { id: staff.id, email: staff.email, name: staff.name, role: staff.role };
+}
+
+/**
  * التوكن الموقَّع وحده لا يكفي — اكتُشف فعليًا (اختبار حي: عطّلنا موظفًا
  * وجلسته القديمة استمرت تعمل حتى انتهاء صلاحية التوكن، ١٢ ساعة) أن
  * `isActive`/`role` وقت إصدار التوكن قد يختلفان عن حالة الموظف الحالية —

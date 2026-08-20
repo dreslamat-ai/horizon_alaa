@@ -5,7 +5,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireStaffSession } from "@/lib/auth/session";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/sso"];
 const ADMIN_ONLY_PREFIXES = ["/settings", "/api/settings"];
 // أصول ثابتة من public/ (زي أفاتار ألاء) — عُرِف حيًا: كانت بتتحوّل لـ/login
 // لأن matcher الأصلي استثنى _next/* بس، مش ملفات public/ نفسها.
