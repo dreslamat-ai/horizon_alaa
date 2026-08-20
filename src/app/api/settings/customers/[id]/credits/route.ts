@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
 import { requireStaffSession } from "@/lib/auth/session";
-import { db, schema } from "@/lib/db";
+import { adjustCreditsManually } from "@/lib/credits";
 
 /** منح نقاط يدويًا — حالات استثنائية (تعويض عن عطل، عرض تجربة إضافي) */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -18,13 +17,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: "الكمية مطلوبة (رقم موجب لمنح، سالب لخصم)" }, { status: 400 });
   }
 
-  const rows = await db.select().from(schema.alaaCustomers).where(eq(schema.alaaCustomers.id, customerId)).limit(1);
-  if (!rows[0]) return NextResponse.json({ error: "العميل غير موجود" }, { status: 404 });
-
-  const [updated] = await db.update(schema.alaaCustomers)
-    .set({ creditsBalance: sql`${schema.alaaCustomers.creditsBalance} + ${amount}`, updatedAt: new Date().toISOString() })
-    .where(eq(schema.alaaCustomers.id, customerId))
-    .returning();
+  const updated = await adjustCreditsManually(customerId, amount, staff.id);
+  if (!updated) return NextResponse.json({ error: "العميل غير موجود" }, { status: 404 });
 
   return NextResponse.json({ customer: updated });
 }

@@ -3,7 +3,8 @@
 // almoaser-dev/server/agent/executeTool.ts (١٢٧٥ سطراً هناك، هنا فقط ما
 // يقابل TOOLS في toolDefinitions.ts). لا بحث تقريبي معرَّب (findSimilar*)
 // في هذه المرحلة — تحسين مؤجَّل لمرحلة لاحقة، ليس نسياناً.
-import { erpGET } from "../erp/erpClient";
+import { erpGET, currentErpConfig } from "../erp/erpClient";
+import { cachedErpCapabilities } from "../erp/erpPermissions";
 
 /**
  * حجب صريح في الكود — دفاع مستقل عن صلاحيات حساب الاتصال في ERPNext.
@@ -34,6 +35,17 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
       if (BLOCKED_DOCTYPES.has(doctype)) {
         return {
           result: { error: `القراءة من "${doctype}" غير متاحة لألاء — بيانات حساسة (رواتب/حسابات مستخدمين) خارج نطاقها دائمًا` },
+          display: "",
+        };
+      }
+      // list_documents ديناميكية (doctype من args)، فـnarrowToolsByErpPermissions
+      // لا تقدر تمنعها مسبقًا — فحصها هنا وقت التنفيذ الفعلي، طبقة إرشادية
+      // فقط: caps غائبة (لسه ما جُلبت) لا تمنع شيئًا، ERPNext نفسه هو الحاجز.
+      const cfg = currentErpConfig();
+      const caps = cachedErpCapabilities(cfg.url, cfg.username);
+      if (caps && !caps.unrestricted && !caps.can(doctype, "read")) {
+        return {
+          result: { error: `صلاحيات حساب الاتصال بـ"${doctype}" لا تسمح بالقراءة (ERPNext)` },
           display: "",
         };
       }

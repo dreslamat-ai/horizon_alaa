@@ -59,6 +59,22 @@ export const alaaConversations = sqliteTable("alaa_conversations", {
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
 });
 
+// سجل معاملات النقاط — منقول حرفيًا من مبدأ creditTransactions في سارة
+// (almoaser-dev/drizzle/schema.ts). كان مفقودًا بالكامل هنا: deductCredits
+// كانت UPDATE مباشر بلا أي أثر — لا تاريخ، لا رصيد قبل/بعد، لا مصدر
+// الخصم. بلا هذا الجدول لا إجابة لسؤال "امتى اتخصمت النقاط دي وليه".
+export const alaaCreditTransactions = sqliteTable("alaa_credit_transactions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  alaaCustomerId: integer("alaa_customer_id").notNull().references(() => alaaCustomers.id),
+  staffId: integer("staff_id").references(() => horizonStaff.id), // فارغ لعمليات نظامية (تجديد شهري تلقائي مثلاً)
+  // message (رسالة −1) | monthly_refill (تعبئة شهرية) | topup (شحن مدفوع) | adjustment (تعديل إداري يدوي)
+  type: text("type", { enum: ["message", "monthly_refill", "topup", "adjustment"] }).notNull(),
+  amount: integer("amount").notNull(), // موجب للإضافة، سالب للخصم
+  balanceAfter: integer("balance_after").notNull(),
+  note: text("note"),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
 export const alaaMessages = sqliteTable("alaa_messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   conversationId: integer("conversation_id").notNull().references(() => alaaConversations.id),

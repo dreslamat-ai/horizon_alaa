@@ -39,9 +39,47 @@ export async function assertAlaaAccessAllowed(customerId: number): Promise<Acces
   return { ok: true, customer };
 }
 
+/**
+ * سجل معاملات — منقول حرفيًا من مبدأ creditTransactions في سارة
+ * (almoaser-dev/server/credits.ts:logTransaction). كل تغيير في الرصيد
+ * يُسجَّل هنا: النوع، الكمية (موجبة/سالبة)، الرصيد بعدها، ومن نفّذها.
+ */
+async function logCreditTransaction(data: {
+  alaaCustomerId: number;
+  staffId?: number;
+  type: "message" | "monthly_refill" | "topup" | "adjustment";
+  amount: number;
+  balanceAfter: number;
+  note?: string;
+}): Promise<void> {
+  await db.insert(schema.alaaCreditTransactions).values(data);
+}
+
 /** يُستدعى بعد رد ناجح فقط — الخصم الفعلي، لا مجرد الفحص */
-export async function deductCredits(customerId: number, amount: number): Promise<void> {
-  await db.update(schema.alaaCustomers)
+export async function deductCredits(customerId: number, amount: number, staffId?: number): Promise<void> {
+  const [updated] = await db.update(schema.alaaCustomers)
     .set({ creditsBalance: sql`${schema.alaaCustomers.creditsBalance} - ${amount}` })
-    .where(eq(schema.alaaCustomers.id, customerId));
+    .where(eq(schema.alaaCustomers.id, customerId))
+    .returning({ creditsBalance: schema.alaaCustomers.creditsBalance });
+  await logCreditTransaction({
+    alaaCustomerId: customerId, staffId, type: "message", amount: -amount,
+    balanceAfter: updated.creditsBalance, note: "خصم رسالة محادثة",
+  });
+}
+
+/** شحن/خصم يدوي من لوحة الإعدادات — دائمًا بمعرفة موظف مسؤول */
+export async function adjustCreditsManually(
+  customerId: number, amount: number, staffId: number,
+): Promise<typeof schema.alaaCustomers.$inferSelect | undefined> {
+  const [updated] = await db.update(schema.alaaCustomers)
+    .set({ creditsBalance: sql`${schema.alaaCustomers.creditsBalance} + ${amount}`, updatedAt: new Date().toISOString() })
+    .where(eq(schema.alaaCustomers.id, customerId))
+    .returning();
+  if (!updated) return undefined;
+  await logCreditTransaction({
+    alaaCustomerId: customerId, staffId, type: "adjustment", amount,
+    balanceAfter: updated.creditsBalance,
+    note: amount > 0 ? "منح نقاط يدويًا من لوحة الإعدادات" : "خصم نقاط يدويًا من لوحة الإعدادات",
+  });
+  return updated;
 }

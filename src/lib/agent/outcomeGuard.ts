@@ -1,6 +1,9 @@
 // ─── مراجعة نتائج التنفيذ قبل تسليم الرد ─────────────────────────────────────
-// منقولة كاملةً (بلا تعديل منطقي) من
-// almoaser-dev/server/agent/outcomeGuard.ts (قُرئت ١٩-٢٠ أغسطس ٢٠٢٦).
+// منقولة من almoaser-dev/server/agent/outcomeGuard.ts (قُرئت ١٩-٢٠ أغسطس).
+// مراجعة ثانية حرفية (٢٠ أغسطس، بطلب المالك): duplicate_prevented كانت
+// سقطت سهوًا من outcomeOf — أُعيدت. TOOL_LABELS/MUTATING مُشذَّبة لأدوات
+// ألاء الفعلية فقط (لا platform_*/create_purchase_invoice وغيرها مما لا
+// تملكه ألاء)، هذا فرق نطاق لا نقص.
 //
 // القاعدة الوحيدة: لا يُعلَن نجاحٌ لا تسنده نتيجة أداة ناجحة. في "ألاء" كل
 // الأدوات قراءة فقط (isMutating ترجع false دائمًا فعليًا)، لكن المنطق يبقى
@@ -25,6 +28,7 @@ export function outcomeOf(name: string, rawJson: string): ToolOutcome {
   const o = parsed as Record<string, unknown>;
   if (o.error) return { name, ok: false, error: String(o.error) };
   if (o.needs_clarification) return { name, ok: false, error: "الأداة طلبت توضيحاً ولم تنفّذ" };
+  if (o.duplicate_prevented) return { name, ok: false, error: "مُنع تكرار — لم يُنشأ سجل جديد" };
   return { name, ok: true };
 }
 

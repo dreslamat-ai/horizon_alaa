@@ -9,6 +9,7 @@ import { runWithCustomerConfig } from "@/lib/erp/erpClient";
 import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
 import { modeRules, identityLine } from "@/lib/agent/agentModes";
 import { TOOLS } from "@/lib/agent/toolDefinitions";
+import { narrowToolsByErpPermissions } from "@/lib/agent/toolPermissions";
 import { executeTool } from "@/lib/agent/executeTool";
 import { invokeAgentLLM } from "@/lib/llm/llmProvider";
 import { outcomeOf, verifyReply, summarizeOutcomes, type ToolOutcome } from "@/lib/agent/outcomeGuard";
@@ -44,10 +45,13 @@ export async function POST(req: NextRequest) {
 
   try {
     return await runWithCustomerConfig(customer.id, async () => {
+      // مرة واحدة قبل الحلقة — طبقة إرشادية (لا حاجز أمني)، تمنع النموذج
+      // من "وعد" الموظف بأداة سيرفضها ERPNext لاحقًا بخطأ صلاحيات.
+      const availableTools = await narrowToolsByErpPermissions([...TOOLS]);
       for (let iter = 0; iter < MAX_ITER; iter++) {
         const response = await invokeAgentLLM({
           messages: llmMessages,
-          tools: [...TOOLS],
+          tools: availableTools,
           tool_choice: "auto",
           max_tokens: 2000,
         });
@@ -62,7 +66,7 @@ export async function POST(req: NextRequest) {
           const verdict = verifyReply(rawText, outcomes);
           const replyText = verdict.ok ? rawText : verdict.replacement;
           // الخصم بعد نجاح الرد فقط — لا قبل، ولا عند فشل النموذج
-          await deductCredits(customer.id, MESSAGE_COST);
+          await deductCredits(customer.id, MESSAGE_COST, staff.id);
           return NextResponse.json({ reply: replyText, toolResults, creditsBalance: customer.creditsBalance - MESSAGE_COST });
         }
 
