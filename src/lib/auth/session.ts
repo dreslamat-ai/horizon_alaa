@@ -1,16 +1,19 @@
-// ─── جلسة موظف Horizon — نسخة مرحلة ١ (حساب ثابت واحد) ───────────────────────
-// جديد بالكامل لـ"ألاء" (لا مصدر في almoaser-dev — سارة تستخدم _core/trpc.ts
-// المبني على نظام مستخدمين كامل غير موجود هنا). كوكي موقَّعة بـHMAC-SHA256
-// عبر Web Crypto (لا Node's crypto module — يعمل في middleware/Edge وفي
-// route handlers معًا بلا فروقات توافق)، بلا قاعدة بيانات بعد — تُستبدل
-// بجدول horizon_staff فعلي في مرحلة ٤.
+// ─── جلسة موظف Horizon — مرحلة ٤: حساب حقيقي من horizon_staff ────────────────
+// جديد بالكامل. مرحلة ١ كانت حساب ثابت واحد في env — هذا الملف يستبدله
+// بالكامل: تسجيل الدخول يستعلم قاعدة البيانات ويتحقق من كلمة سر مُجزّأة
+// (password.ts)، والجلسة تحمل هوية وصلاحية الموظف الحقيقيتين (id/role)
+// لا قيمًا ثابتة. كوكي موقَّعة بـHMAC-SHA256 عبر Web Crypto كما كانت.
 import { cookies } from "next/headers";
+import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
+import { db, schema } from "../db";
+import { verifyPassword } from "./password";
 
 export const SESSION_COOKIE = "alaa_staff_session";
 export const SESSION_MAX_AGE_SEC = 60 * 60 * 12; // ١٢ ساعة
 
-export type StaffSession = { email: string; name: string };
+export type StaffRole = "support" | "admin";
+export type StaffSession = { id: number; email: string; name: string; role: StaffRole };
 
 function b64urlFromBytes(bytes: Uint8Array): string {
   let bin = "";
@@ -28,13 +31,7 @@ function bytesFromB64url(str: string): ArrayBuffer {
 async function hmacKey(): Promise<CryptoKey> {
   const secret = process.env.SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET غير مضبوط في .env.local");
-  return crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"],
-  );
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
 async function sign(payload: string): Promise<string> {
@@ -59,25 +56,45 @@ async function verifyToken(token: string): Promise<StaffSession | null> {
   try {
     const data = JSON.parse(new TextDecoder().decode(bytesFromB64url(payload))) as StaffSession & { exp: number };
     if (Date.now() > data.exp) return null;
-    return { email: data.email, name: data.name };
+    return { id: data.id, email: data.email, name: data.name, role: data.role };
   } catch {
     return null;
   }
 }
 
-/** يتحقق من بيانات دخول الموظف الثابت (env) — يُستبدل بجدول staff في مرحلة ٤ */
-export function checkStaffCredentials(email: string, password: string): StaffSession | null {
-  const expectedEmail = process.env.STAFF_EMAIL ?? "";
-  const expectedPassword = process.env.STAFF_PASSWORD ?? "";
-  if (!expectedEmail || !expectedPassword) return null;
-  if (email !== expectedEmail || password !== expectedPassword) return null;
-  return { email, name: process.env.STAFF_NAME ?? "موظف Horizon" };
+/**
+ * يتحقق من بيانات دخول موظف حقيقي من horizon_staff.
+ *
+ * لا فرق في رسالة الفشل بين "بريد غير موجود" و"كلمة سر خطأ" — نفس نمط
+ * الأمان القياسي، منع تعداد البريد الإلكتروني (email enumeration).
+ */
+export async function checkStaffCredentials(email: string, password: string): Promise<StaffSession | null> {
+  const rows = await db.select().from(schema.horizonStaff).where(eq(schema.horizonStaff.email, email)).limit(1);
+  const staff = rows[0];
+  if (!staff || !staff.isActive) return null;
+  const ok = await verifyPassword(password, staff.passwordHash);
+  if (!ok) return null;
+  return { id: staff.id, email: staff.email, name: staff.name, role: staff.role };
 }
 
-/** للاستخدام داخل middleware و Route Handlers */
+/**
+ * التوكن الموقَّع وحده لا يكفي — اكتُشف فعليًا (اختبار حي: عطّلنا موظفًا
+ * وجلسته القديمة استمرت تعمل حتى انتهاء صلاحية التوكن، ١٢ ساعة) أن
+ * `isActive`/`role` وقت إصدار التوكن قد يختلفان عن حالة الموظف الحالية —
+ * إداري عطّل موظفًا للتوّ يتوقّع أن يُقفل وصوله فورًا لا خلال ١٢ ساعة.
+ * لذلك: بعد التحقق من التوقيع، يُعاد الاستعلام عن الصف الحقيقي دائمًا.
+ * تكلفة استعلام واحد لكل طلب مقبولة مقابل ضمان الإنفاذ الفوري.
+ */
 export async function verifySessionToken(token: string | undefined): Promise<StaffSession | null> {
   if (!token) return null;
-  return verifyToken(token);
+  const claimed = await verifyToken(token);
+  if (!claimed) return null;
+
+  const rows = await db.select().from(schema.horizonStaff).where(eq(schema.horizonStaff.id, claimed.id)).limit(1);
+  const current = rows[0];
+  if (!current || !current.isActive) return null;
+
+  return { id: current.id, email: current.email, name: current.name, role: current.role };
 }
 
 export async function requireStaffSession(req: NextRequest): Promise<StaffSession | null> {

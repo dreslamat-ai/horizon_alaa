@@ -1,17 +1,22 @@
-// ─── بذر بيانات تجريبية لمرحلة ٢ ──────────────────────────────────────────────
-// موظف Horizon واحد (لسجل createdByStaffId فقط — تسجيل الدخول لسه على
-// الحساب الثابت في env حتى مرحلة ٤ حسب الخطة)، باقة واحدة، وعميلان
-// تجريبيان لاختبار العزل. القيمتان الحاليتان تشيران لنفس
-// demo.horizonerp.cloud (بلا حساب ERPNext ثانٍ متاح فعليًا الآن) — يثبت
-// آلية اختيار العميل وبناء الاتصال من القاعدة، لا عزل بيانات حقيقي بعد.
+// ─── بذر بيانات تجريبية ────────────────────────────────────────────────────
+// مرحلة ٤: موظف admin حقيقي بكلمة سر مُجزّأة (لا "n/a" كما كانت مرحلة ٢ —
+// نظام تسجيل الدخول الحقيقي يتحقق من الهاش فعليًا الآن)، باقة واحدة،
+// وعميلان تجريبيان لاختبار العزل. القيمتان الحاليتان تشيران لنفس
+// demo.horizonerp.cloud (بلا حساب ERPNext ثانٍ متاح فعليًا الآن).
 import { db, schema } from "../src/lib/db";
 import { encryptSecret } from "../src/lib/crypto";
+import { hashPassword } from "../src/lib/auth/password";
 
 async function main() {
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD;
+  if (!seedPassword) {
+    throw new Error("SEED_ADMIN_PASSWORD مطلوب في .env.local للبذر (كلمة سر أول حساب admin)");
+  }
+
   const [staff] = await db.insert(schema.horizonStaff).values({
-    email: "seed@horizon.local",
-    name: "بذرة أولية",
-    passwordHash: "n/a", // تسجيل الدخول لسه بالحساب الثابت — يُفعَّل في مرحلة ٤
+    email: "admin@horizon.local",
+    name: "مدير ألاء",
+    passwordHash: await hashPassword(seedPassword),
     role: "admin",
   }).returning();
 
@@ -59,7 +64,7 @@ async function main() {
     },
   ]);
 
-  console.log("تمّ البذر: موظف واحد، باقة واحدة، عميلان (الثاني برصيد صفر عمدًا).");
+  console.log(`تمّ البذر: موظف admin (${staff.email})، باقة واحدة، عميلان (الثاني برصيد صفر عمدًا).`);
 }
 
 main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });

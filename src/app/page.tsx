@@ -19,7 +19,9 @@ export default async function HomePage() {
         Horizon ERPNext.
       </p>
       <div className="flex gap-4 items-center">
-        <Link href="/settings" className="text-sm text-[#1D2D44] underline font-semibold">إدارة العملاء</Link>
+        {staff.role === "admin" && (
+          <Link href="/settings" className="text-sm text-[#1D2D44] underline font-semibold">إدارة العملاء</Link>
+        )}
         <LogoutButton />
       </div>
       <AlaaWidget />

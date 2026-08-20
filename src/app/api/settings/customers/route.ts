@@ -55,17 +55,6 @@ export async function POST(req: NextRequest) {
   const plan = (await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, body.planId)).limit(1))[0];
   if (!plan) return NextResponse.json({ error: "الباقة غير موجودة" }, { status: 400 });
 
-  // هوية الموظف الحقيقية من الجلسة تُبنى في مرحلة ٤ (نظام تسجيل دخول حقيقي
-  // مربوط بـhorizon_staff). حاليًا: أول صف موجود، أو صف يُنشأ إن لم يوجد —
-  // بلا استخدام رقم ثابت مفترَض قد لا يطابق ما زرعه seed.ts فعليًا.
-  const existingStaff = (await db.select().from(schema.horizonStaff).limit(1))[0];
-  const staffRow = existingStaff ?? (await db.insert(schema.horizonStaff).values({
-    email: staff.email,
-    name: staff.name,
-    passwordHash: "n/a",
-    role: "admin",
-  }).returning())[0];
-
   const months = body.subscriptionMonths ?? 1;
   const endDate = new Date(Date.now() + months * 30 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -80,7 +69,7 @@ export async function POST(req: NextRequest) {
     subscriptionEndDate: endDate,
     creditsBalance: plan.monthlyCreditsAllowance,
     monthlyCreditsAllowance: plan.monthlyCreditsAllowance,
-    createdByStaffId: staffRow.id,
+    createdByStaffId: staff.id,
   }).returning();
 
   return NextResponse.json({ customer, loggedInAs: test.loggedInAs });

@@ -32,8 +32,9 @@ export default async function SettingsPage() {
           <h1 className="text-2xl font-bold text-[#1D2D44]">إدارة عملاء ألاء</h1>
           <p className="text-sm text-gray-500">تفعيل الاشتراكات وشحن النقاط</p>
         </div>
-        <div className="flex gap-3">
-          <Link href="/" className="text-sm text-gray-500 underline self-center">رجوع للمحادثة</Link>
+        <div className="flex gap-3 items-center">
+          <Link href="/" className="text-sm text-gray-500 underline">رجوع للمحادثة</Link>
+          <Link href="/settings/staff" className="text-sm text-[#1D2D44] underline">موظفو Horizon</Link>
           <Link href="/settings/new" className="bg-[#1D2D44] text-white rounded-lg px-4 py-2 text-sm font-semibold">
             + عميل جديد
           </Link>

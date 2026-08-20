@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "البريد وكلمة المرور مطلوبان" }, { status: 400 });
   }
 
-  const session = checkStaffCredentials(body.email, body.password);
+  const session = await checkStaffCredentials(body.email, body.password);
   if (!session) {
     return NextResponse.json({ error: "بيانات الدخول غير صحيحة" }, { status: 401 });
   }
