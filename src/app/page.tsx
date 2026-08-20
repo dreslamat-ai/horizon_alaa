@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStaffSession } from "@/lib/auth/session";
 import AlaaWidget from "@/components/AlaaWidget";
@@ -14,10 +15,13 @@ export default async function HomePage() {
       </div>
       <h1 className="text-2xl font-bold text-[#1D2D44]">أهلاً {staff.name}</h1>
       <p className="text-gray-600 max-w-md">
-        بروتوتايب "ألاء" — اضغط الزر العائم في الأسفل واسأل عن أي بيانات في
-        نظام Horizon ERPNext التجريبي.
+        اضغط الزر العائم في الأسفل، اختر العميل، واسأل عن بيانات نظامه في
+        Horizon ERPNext.
       </p>
-      <LogoutButton />
+      <div className="flex gap-4 items-center">
+        <Link href="/settings" className="text-sm text-[#1D2D44] underline font-semibold">إدارة العملاء</Link>
+        <LogoutButton />
+      </div>
       <AlaaWidget />
     </main>
   );
