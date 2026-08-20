@@ -1,26 +1,21 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/*
+ * عُطلان حقيقيان بلَّغ عنهما المالك من جهاز حقيقي، مصدرهما نفس الملف —
+ * بقايا قالب create-next-app الافتراضي لم تُشَل عند إضافة هوية Horizon:
+ *
+ * ١. body { font-family: Arial... } كانت تغلب صراحةً متغيّر --font-cairo
+ *    المضبوط في layout.tsx (document.fonts أثبت أن Cairo كانت "unloaded"
+ *    تمامًا — المتصفح لم يحاول تحميلها أصلاً لأن لا شيء يطلبها فعليًا).
+ * ٢. @media (prefers-color-scheme: dark) كانت تجعل --foreground قريبًا
+ *    من الأبيض (#ededed) — نصّ شبه أبيض فوق فقاعات bg-white الصريحة في
+ *    AlaaWidget.tsx كان غير مقروء على أي جهاز وضعه الليلي مفعَّل تلقائيًا.
+ *
+ * ألاء هوية بصرية ثابتة (كحلي/أزرق/كريمي Horizon من كتاب الهوية)، لا
+ * تطبيق يتكيّف مع theme النظام — فلا حاجة لكتلة dark mode من الأساس.
+ */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #DFE0DB;
+  color: #171717;
+  font-family: var(--font-cairo), Arial, Helvetica, sans-serif;
 }
