@@ -5,6 +5,10 @@ import "./globals.css";
 const cairo = Cairo({
   variable: "--font-cairo",
   subsets: ["arabic", "latin"],
+  // "swap" (الافتراضي) يعرض خط النظام فورًا ثم يبدّله بعد تحميل Cairo —
+  // داخل iframe محتضَن في desk، هذا التبديل قد يظهر كـ"مش Cairo" لمن
+  // يفتح ويقرأ بسرعة. "block" ينتظر تحميل الخط قصيرًا قبل عرض أي نص.
+  display: "block",
 });
 
 export const metadata: Metadata = {
