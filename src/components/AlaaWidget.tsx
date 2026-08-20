@@ -29,13 +29,53 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
-function formatMessage(s: string): string {
+/** سطر أو نص عادي بعد التهريب — بلا معالجة جداول (تُعالَج على مستوى الفقرة) */
+function formatInline(s: string): string {
   let h = escapeHtml(s);
   h = h.replace(/^\s*#{1,4}\s*(.+)$/gm, '<b class="block mt-2 mb-1 first:mt-0">$1</b>');
   h = h.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   h = h.replace(/^\s*[-*·]\s+/gm, "• ");
   h = h.replace(/\n/g, "<br>");
   return h;
+}
+
+const TABLE_ROW_RE = /^\s*\|(.+)\|\s*$/;
+const TABLE_SEPARATOR_RE = /^\s*\|?[\s:|-]+\|?\s*$/;
+
+function splitTableCells(row: string): string[] {
+  return row.replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+}
+
+/**
+ * جداول ماركداون (| عمود | عمود |) — كانت تظهر رموزًا خامًا مبعثرة
+ * («تنسيق المحادثة زبالة»، بلاغ حي من المالك). ردود النموذج تحمل جداولاً
+ * حقيقية دائمًا تقريبًا (قوائم فواتير، أصناف)، لا مجرد فقرات نصية.
+ */
+function formatMessage(raw: string): string {
+  const lines = raw.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (TABLE_ROW_RE.test(line) && i + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[i + 1])) {
+      const header = splitTableCells(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && TABLE_ROW_RE.test(lines[i])) {
+        rows.push(splitTableCells(lines[i]));
+        i++;
+      }
+      const thead = header.map(c => `<th class="border border-[#e6eaf1] px-2 py-1 bg-[#f6f8fb] text-start">${escapeHtml(c)}</th>`).join("");
+      const tbody = rows.map(r =>
+        `<tr>${r.map(c => `<td class="border border-[#e6eaf1] px-2 py-1">${escapeHtml(c)}</td>`).join("")}</tr>`
+      ).join("");
+      out.push(`<table class="w-full text-xs my-1.5 border-collapse"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`);
+      continue;
+    }
+    out.push(formatInline(line));
+    i++;
+  }
+  return out.join("<br>").replace(/(<br>)*(<table)/g, "$2").replace(/(<\/table>)(<br>)*/g, "$1");
 }
 
 // جوّا iframe (زرّ desk في horizon_desk_theme بيحمّل الصفحة الرئيسية
