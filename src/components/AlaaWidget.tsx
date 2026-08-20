@@ -82,10 +82,10 @@ export default function AlaaWidget() {
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-label="تحدّث مع ألاء"
-        className="fixed bottom-5 z-50 w-14 h-14 rounded-full bg-[#1D2D44] text-white shadow-lg flex items-center justify-center text-xl font-bold hover:bg-[#16233590] transition"
+        className="fixed bottom-5 z-50 w-14 h-14 rounded-full overflow-hidden shadow-lg hover:opacity-90 transition"
         style={{ insetInlineEnd: "20px" }}
       >
-        أ
+        <img src={`${API_BASE}/alaa-avatar.png`} alt="" className="w-full h-full object-cover" />
       </button>
 
       {open && (
@@ -96,7 +96,9 @@ export default function AlaaWidget() {
           style={{ insetInlineEnd: "20px" }}
         >
           <div className="bg-[#1D2D44] text-white px-3.5 py-3 flex items-center gap-2.5 shrink-0">
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-bold">أ</div>
+            <div className="w-8 h-8 rounded-full overflow-hidden shrink-0">
+              <img src={`${API_BASE}/alaa-avatar.png`} alt="" className="w-full h-full object-cover" />
+            </div>
             <div className="flex-1">
               <b className="block text-[15px] leading-tight">ألاء</b>
               <small className="opacity-75 text-[11.5px]">مساعدة Horizon الذكية</small>

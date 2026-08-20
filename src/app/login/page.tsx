@@ -75,8 +75,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-[#DFE0DB] px-4" dir="rtl">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-8">
         <div className="flex flex-col items-center gap-2 mb-6">
-          <div className="w-14 h-14 rounded-full bg-[#1D2D44] flex items-center justify-center text-white text-2xl font-bold">
-            أ
+          <div className="w-14 h-14 rounded-full overflow-hidden">
+            <img src={`${API_BASE}/alaa-avatar.png`} alt="ألاء" className="w-full h-full object-cover" />
           </div>
           <h1 className="text-xl font-bold text-[#1D2D44]">تسجيل الدخول إلى ألاء</h1>
           <p className="text-sm text-gray-500">لموظفي Horizon فقط</p>
