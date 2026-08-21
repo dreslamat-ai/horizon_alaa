@@ -29,9 +29,29 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
+/**
+ * رابط ماركداون [نص](رابط) — لروابط تحميل PDF فقط. مقبول عمدًا: مسار
+ * نسبي يبدأ بـ/api/invoice-pdf? بالضبط، لا أي رابط آخر — النموذج قد
+ * يكتب رابطًا خارجيًا لو تُرك بلا قيد (نفس منطق extractGoto في شهد: لا
+ * يُقبل إلا مسار داخلي معروف). حروف المنطقة الخاصة (Private Use Area،
+ * لا تقع أبدًا في نص حقيقي) هي الفاصل المؤقّت بين النص والرابط — مسافة
+ * عادية كانت ستنكسر لأن نص الزر يحتوي مسافات فعلاً.
+ */
+const SAFE_LINK_RE = /^\/api\/invoice-pdf\?[A-Za-z0-9_=&%.\-]{1,300}$/;
+const SEP1 = "";
+const SEP2 = "";
+const SEP3 = "";
+
 /** سطر أو نص عادي بعد التهريب — بلا معالجة جداول (تُعالَج على مستوى الفقرة) */
 function formatInline(s: string): string {
-  let h = escapeHtml(s);
+  const linkified = s.replace(/\[([^\]\n]{1,120})\]\(([^)\n]{1,300})\)/g, (_m, text: string, href: string) => {
+    if (!SAFE_LINK_RE.test(href)) return text; // رابط غير موثوق ⇐ النص وحده بلا رابط
+    return `${SEP1}${text}${SEP2}${href}${SEP3}`;
+  });
+  let h = escapeHtml(linkified);
+  const linkRe = new RegExp(`${SEP1}([^${SEP2}]*)${SEP2}([^${SEP3}]*)${SEP3}`, "g");
+  h = h.replace(linkRe, (_m, text: string, href: string) =>
+    `<a href="${href}" target="_blank" rel="noopener" class="underline text-[#1D2D44] font-semibold">${text}</a>`);
   h = h.replace(/^\s*#{1,4}\s*(.+)$/gm, '<b class="block mt-2 mb-1 first:mt-0">$1</b>');
   h = h.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   h = h.replace(/^\s*[-*·]\s+/gm, "• ");

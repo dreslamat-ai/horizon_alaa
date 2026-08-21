@@ -87,4 +87,19 @@ export const TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_invoice_pdf_link",
+      description: "رابط تحميل فاتورة كملف PDF جاهز للطباعة — استخدمها لما يُطلب إرسال/تحميل/طباعة فاتورة",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_name: { type: "string", description: "رقم الفاتورة مثل SINV-2024-00001" },
+        },
+        required: ["invoice_name"],
+        additionalProperties: false,
+      },
+    },
+  },
 ] as const;

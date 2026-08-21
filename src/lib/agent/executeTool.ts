@@ -99,6 +99,20 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
       return { result: data?.data, display: `تفاصيل فاتورة ${args.invoice_name}` };
     }
 
+    case "get_invoice_pdf_link": {
+      const invoiceName = String(args.invoice_name ?? "").trim();
+      if (!invoiceName) throw new Error("رقم الفاتورة مطلوب");
+      // تأكيد الوجود أولاً — رابط لفاتورة غير موجودة يوصل المستخدم لصفحة
+      // خطأ بلا تفسير، وoutcomeGuard لا يفحص روابط داخل النص العادي.
+      await erpGET(`/api/resource/Sales%20Invoice/${encodeURIComponent(invoiceName)}`);
+      const { customerId } = currentErpConfig();
+      const qs = new URLSearchParams({ customerId: String(customerId), doctype: "Sales Invoice", name: invoiceName });
+      return {
+        result: { url: `/api/invoice-pdf?${qs}`, invoice_name: invoiceName },
+        display: `رابط PDF لفاتورة ${invoiceName}`,
+      };
+    }
+
     default:
       throw new Error(`أداة غير معروفة: ${name}`);
   }
