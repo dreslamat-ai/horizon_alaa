@@ -20,9 +20,9 @@ export async function narrowToolsByErpPermissions<T extends { function: { name: 
       // تحديث غير محجوب — لا ينتظره هذا الطلب، وتستفيد منه الرسائل التالية
       void (async () => {
         try {
-          const { getErpSession } = await import("../erp/erpConnection");
-          const sid = await getErpSession(cfg);
-          await fetchErpCapabilities({ url: cfg.url, username: cfg.username, cookie: `sid=${sid}` });
+          const { getErpAuthHeader } = await import("../erp/erpConnection");
+          const authHeader = await getErpAuthHeader(cfg);
+          await fetchErpCapabilities({ url: cfg.url, username: cfg.username, authHeader });
         } catch { /* الطبقة إرشادية — الفشل هنا لا يعني شيئاً للمستخدم */ }
       })();
       return tools;

@@ -54,7 +54,7 @@ export function cachedErpCapabilities(url: string, username: string): ErpCapabil
 }
 
 export async function fetchErpCapabilities(params: {
-  url: string; username: string; cookie: string;
+  url: string; username: string; authHeader: { header: "Cookie" | "Authorization"; value: string };
 }): Promise<ErpCapabilities | null> {
   const key = cacheKey(params.url, params.username);
   const hit = cache.get(key);
@@ -63,7 +63,7 @@ export async function fetchErpCapabilities(params: {
   const base = params.url.replace(/\/+$/, "");
   const get = async (path: string) => {
     const res = await fetch(base + path, {
-      headers: { Cookie: params.cookie },
+      headers: { [params.authHeader.header]: params.authHeader.value },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`${path} → ${res.status}`);

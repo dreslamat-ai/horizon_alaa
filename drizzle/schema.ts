@@ -29,12 +29,21 @@ export const alaaCustomers = sqliteTable("alaa_customers", {
   companyNameAr: text("company_name_ar").notNull(),
   companyNameEn: text("company_name_en"),
 
-  // اتصال Horizon ERPNext الخاص بهذا العميل — حساب موظف قراءة محدود
-  // الصلاحيات، لا مدير نظام (اتساقًا مع القرار الموثَّق، ويستاهل تأكيد
-  // فعلي عند كل عميل جديد بعد اكتشاف صلاحيات حساب الاختبار الواسعة).
+  // اتصال Horizon ERPNext الخاص بهذا العميل.
+  //
+  // 🔴 قرار مُصحَّح (٢١ أغسطس) — عكس التعليق القديم هنا حرفيًا: المالك رفض
+  // "حساب قراءة محدود بأدوار أنا بختارها" صراحةً: "ألاء تقرأ صلاحيات
+  // المستخدم بالكامل وتستخدمها، ماتفصلش صلاحيات بمزاجك". الحل: authType
+  // "api_key" لحساب كامل الصلاحيات (زي Administrator) — API Key/Secret
+  // بلا تغيير كلمة سر الحساب الحقيقي ولا قفل جلساته الحالية. narrowToolsByErpPermissions
+  // (agent/toolPermissions.ts) هو الذي يقرأ صلاحيات هذا الحساب الفعلية
+  // من ERPNext نفسه ويطبّقها — لا اختيار أدوار يدوي هنا مطلقًا.
+  authType: text("auth_type", { enum: ["password", "api_key"] }).notNull().default("password"),
   erpUrl: text("erp_url").notNull(),
+  // authType="password": اسم مستخدم حقيقي. authType="api_key": قيمة الـAPI Key.
   erpUsername: text("erp_username").notNull(),
-  erpPasswordEnc: text("erp_password_enc").notNull(), // AES-256-GCM بمفتاح ALAA_ENC_SECRET
+  // authType="password": كلمة السر. authType="api_key": قيمة الـAPI Secret. AES-256-GCM بمفتاح ALAA_ENC_SECRET
+  erpPasswordEnc: text("erp_password_enc").notNull(),
 
   planId: integer("plan_id").notNull().references(() => alaaPlans.id),
   subscriptionStatus: text("subscription_status", {

@@ -2,14 +2,24 @@
 // ثابت. منقولة بتصرّف من almoaser-dev/server/erpConnection.ts (قُرئت
 // ١٩-٢٠ أغسطس ٢٠٢٦) — الفرق: هناك اتصال لكل مستخدم منصة، وهنا اتصال لكل
 // عميل (شركة) يختاره موظف Horizon قبل المحادثة.
+//
+// 🔴 مراجَعة (٢١ أغسطس): يدعم الآن نوعَي اتصال — "password" (تسجيل
+// دخول تقليدي، جلسة sid مؤقتة) و"api_key" (Authorization: token
+// key:secret، بلا جلسة إطلاقًا). المالك رفض حسابات بأدوار مُختارة يدويًا
+// ("ماتفصلش صلاحيات بمزاجك") — api_key يسمح باستخدام حساب كامل
+// الصلاحيات (زي Administrator) بلا تغيير كلمة سره الحقيقية أو قفل
+// جلساته الحالية، عبر توليد مفتاح API منفصل تمامًا لنفس الحساب.
 import { eq } from "drizzle-orm";
 import { db, schema } from "../db";
 import { decryptSecret } from "../crypto";
+
+export type ErpAuthType = "password" | "api_key";
 
 export type ErpConfig = {
   url: string;
   username: string;
   password: string;
+  authType: ErpAuthType;
   source: "customer";
   provider: "erpnext";
   customerId: number;
@@ -23,6 +33,7 @@ export async function getErpConfigForCustomer(customerId: number): Promise<ErpCo
     url: customer.erpUrl.replace(/\/+$/, ""),
     username: customer.erpUsername,
     password: decryptSecret(customer.erpPasswordEnc),
+    authType: customer.authType as ErpAuthType,
     source: "customer",
     provider: "erpnext",
     customerId: customer.id,
@@ -61,9 +72,25 @@ export async function explainErpFailure(res: Response): Promise<string> {
 }
 
 /** اختبار اتصال مباشر — يُستخدم في واجهة إضافة عميل قبل الحفظ */
-export async function testErpConnection(url: string, username: string, password: string): Promise<{ ok: boolean; loggedInAs?: string; error?: string }> {
+export async function testErpConnection(
+  url: string, username: string, password: string, authType: ErpAuthType = "password",
+): Promise<{ ok: boolean; loggedInAs?: string; error?: string }> {
+  const cleanUrl = url.replace(/\/+$/, "");
+
+  if (authType === "api_key") {
+    try {
+      const res = await fetch(`${cleanUrl}/api/method/frappe.auth.get_logged_user`, {
+        headers: { Authorization: `token ${username}:${password}` },
+      });
+      if (!res.ok) return { ok: false, error: await explainErpFailure(res) };
+      const body = (await res.json().catch(() => ({}))) as { message?: string };
+      return { ok: true, loggedInAs: body.message ?? "حساب API Key" };
+    } catch (e) {
+      return { ok: false, error: `تعذّر الوصول إلى الخادم: ${e instanceof Error ? e.message : "خطأ غير معروف"}` };
+    }
+  }
+
   try {
-    const cleanUrl = url.replace(/\/+$/, "");
     const res = await fetch(`${cleanUrl}/api/method/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -81,14 +108,23 @@ export async function testErpConnection(url: string, username: string, password:
 }
 
 // كاش جلسات sid — مفتاح منفصل لكل عميل (url+username) عشان عملاء مختلفين
-// ميشاركوش جلسة بعضهم بالغلط.
+// ميشاركوش جلسة بعضهم بالغلط. لا يُستخدم إطلاقًا لـapi_key (بلا جلسة).
 const sessionCache = new Map<string, { sid: string; expiry: number }>();
 
-export async function getErpSession(config: ErpConfig): Promise<string> {
+/**
+ * قيمة هيدر المصادقة الجاهزة — "sid=<token>" لتسجيل الدخول التقليدي
+ * (تُستخدم كـCookie)، أو "token <key>:<secret>" لـapi_key (تُستخدم
+ * كـAuthorization مباشرة، بلا أي نداء شبكة لأنها لا تنتهي صلاحيتها).
+ */
+export async function getErpAuthHeader(config: ErpConfig): Promise<{ header: "Cookie" | "Authorization"; value: string }> {
+  if (config.authType === "api_key") {
+    return { header: "Authorization", value: `token ${config.username}:${config.password}` };
+  }
+
   const cacheKey = `${config.url}|${config.username}`;
   const cached = sessionCache.get(cacheKey);
   const now = Date.now();
-  if (cached && now < cached.expiry) return cached.sid;
+  if (cached && now < cached.expiry) return { header: "Cookie", value: `sid=${cached.sid}` };
 
   const res = await fetch(`${config.url}/api/method/login`, {
     method: "POST",
@@ -100,7 +136,7 @@ export async function getErpSession(config: ErpConfig): Promise<string> {
   const m = cookie.match(/sid=([^;]+)/);
   if (!m || m[1] === "Guest") throw new Error("بيانات اعتماد ERPNext غير صحيحة — تحقق من اسم المستخدم وكلمة المرور");
   sessionCache.set(cacheKey, { sid: m[1], expiry: now + 6 * 60 * 60 * 1000 });
-  return m[1];
+  return { header: "Cookie", value: `sid=${m[1]}` };
 }
 
 export function invalidateErpSession(config: ErpConfig): void {
