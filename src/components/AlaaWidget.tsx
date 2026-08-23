@@ -41,6 +41,8 @@ function escapeHtml(s: string): string {
 // — غيابها كان يُسقط كل رابط فاتورة فعلي. والبادئة /alaa اختيارية هنا
 // لأن الموديل قد يكتب الرابط بها أو بدونها، وتُطبَّع دائمًا قبل العرض.
 const SAFE_LINK_RE = /^(?:\/alaa)?\/api\/invoice-pdf\?[A-Za-z0-9_=&%.+\-]{1,300}$/;
+// زر فتح شاشة داخل desk — نفس منطق extractGoto في شهد: مسار داخلي معروف فقط
+const SAFE_GOTO_RE = /^goto:[A-Za-z0-9\-\/_%. ]{1,120}$/;
 const BARE_LINK_RE = /(?:\/alaa)?\/api\/invoice-pdf\?[A-Za-z0-9_=&%.+\-]{1,300}/g;
 const withAlaaPrefix = (href: string) => (href.startsWith("/alaa/") ? href : `/alaa${href}`);
 const SEP1 = "";
@@ -50,6 +52,7 @@ const SEP3 = "";
 /** سطر أو نص عادي بعد التهريب — بلا معالجة جداول (تُعالَج على مستوى الفقرة) */
 function formatInline(s: string): string {
   let linkified = s.replace(/\[([^\]\n]{1,120})\]\(([^)\n]{1,300})\)/g, (_m, text: string, href: string) => {
+    if (SAFE_GOTO_RE.test(href)) return `${SEP1}${text}${SEP2}${href}${SEP3}`;
     if (!SAFE_LINK_RE.test(href)) return text; // رابط غير موثوق ⇐ النص وحده بلا رابط
     return `${SEP1}${text}${SEP2}${withAlaaPrefix(href)}${SEP3}`;
   });
@@ -61,7 +64,9 @@ function formatInline(s: string): string {
   let h = escapeHtml(linkified);
   const linkRe = new RegExp(`${SEP1}([^${SEP2}]*)${SEP2}([^${SEP3}]*)${SEP3}`, "g");
   h = h.replace(linkRe, (_m, text: string, href: string) =>
-    `<a href="${href}" target="_blank" rel="noopener" class="inline-block my-1 px-3 py-1.5 rounded-lg bg-[#1D2D44] text-white font-semibold no-underline">${text}</a>`);
+    href.startsWith("goto:")
+      ? `<a href="#" data-goto="${href.slice(5)}" class="inline-block my-1 px-3 py-1.5 rounded-lg bg-[#5083BC] text-white font-semibold no-underline cursor-pointer">↗ ${text}</a>`
+      : `<a href="${href}" target="_blank" rel="noopener" class="inline-block my-1 px-3 py-1.5 rounded-lg bg-[#1D2D44] text-white font-semibold no-underline">${text}</a>`);
   h = h.replace(/^\s*#{1,4}\s*(.+)$/gm, '<b class="block mt-2 mb-1 first:mt-0">$1</b>');
   h = h.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   h = h.replace(/^\s*[-*·]\s+/gm, "• ");
@@ -148,6 +153,20 @@ export default function AlaaWidget() {
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [messages, busy]);
+
+  /** ضغط زر goto: جوه iframe الـdesk ⇐ الأب ينقّل؛ صفحة مستقلة ⇐ تبويب جديد */
+  function handleGotoClick(e: React.MouseEvent<HTMLDivElement>) {
+    const a = (e.target as HTMLElement).closest("a[data-goto]");
+    if (!a) return;
+    e.preventDefault();
+    const route = a.getAttribute("data-goto") || "";
+    if (!/^[A-Za-z0-9\-\/_%. ]{1,120}$/.test(route)) return;
+    if (window.self !== window.top) {
+      window.parent.postMessage({ type: "alaa_goto", route }, window.location.origin);
+    } else {
+      window.open("/app/" + route, "_blank", "noopener");
+    }
+  }
 
   async function send(text: string) {
     const trimmed = text.trim();
@@ -253,6 +272,7 @@ export default function AlaaWidget() {
                       ? "bg-[#fdeaea] text-[#a33] border border-[#f5c6c6]"
                       : "bg-white text-[#1D2D44] border border-[#e6eaf1] rounded-ss-sm")
                 }
+                onClick={m.role === "assistant" ? handleGotoClick : undefined}
                 {...(m.role === "assistant"
                   ? { dangerouslySetInnerHTML: { __html: formatMessage(m.content) } }
                   : { children: m.content })}
