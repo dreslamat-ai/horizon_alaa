@@ -90,6 +90,7 @@ async function sendOtpEmail(email: string, code: string) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, code, ts, sig }),
+    signal: AbortSignal.timeout(25_000),
   });
   return res.ok;
 }
