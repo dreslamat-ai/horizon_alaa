@@ -1,4 +1,4 @@
-// ─── مساعدات ERPNext: البحث بالتشابه، الشركة، الضريبة، العناوين ─────────────
+// ─── مساعدات Horizon ERP: البحث بالتشابه، الشركة، الضريبة، العناوين ─────────────
 // مشتركة بين أدوات كثيرة، ومنطقها (تطبيع العربية، التشابه، إعادة المحاولة عند
 // اختلاف مركز التكلفة) قائم بذاته ويستحق أن يُختبر بمعزل عن المنفّذ.
 import { erpGET, erpPOST, erpPUT, erpApiBase } from "./erpClient";
@@ -27,7 +27,7 @@ export function isSimilar(a: string, b: string): boolean {
   return na === nb || na.includes(nb) || nb.includes(na);
 }
 
-// توليد متغيرات الهمزات لكلمة البحث حتى يجد فلتر like في ERPNext الأسماء
+// توليد متغيرات الهمزات لكلمة البحث حتى يجد فلتر like في Horizon ERP الأسماء
 // المكتوبة بهمزات مختلفة (اسلام/إسلام/أسلام كلها نفس الاسم)
 export function buildSearchVariants(word: string): string[] {
   const variants = new Set<string>();
@@ -51,7 +51,7 @@ export function buildSearchVariants(word: string): string[] {
   return Array.from(variants).slice(0, 8);
 }
 
-// بحث like متعدد المتغيرات في ERPNext: يجرب كل متغير همزات ويدمج النتائج
+// بحث like متعدد المتغيرات في Horizon ERP: يجرب كل متغير همزات ويدمج النتائج
 export async function erpSearchByField<T extends { name: string }>(
   doctype: string,
   searchField: string,
@@ -115,7 +115,7 @@ export async function getDefaultCompany(): Promise<string> {
   return _defaultCompany;
 }
 
-// ترجمة أخطاء ERPNext الشائعة إلى رسائل عربية مفهومة
+// ترجمة أخطاء Horizon ERP الشائعة إلى رسائل عربية مفهومة
 /**
  * يستخرج الرسالة البشرية من خطأ Frappe.
  *
@@ -126,7 +126,7 @@ export async function getDefaultCompany(): Promise<string> {
 export function frappeHumanMessage(raw: string): string {
   const candidates: string[] = [];
 
-  // الجسم كائن JSON مسبوق أحياناً بـ"ERPNext DELETE error 417: " — نقتطع من أول قوس
+  // الجسم كائن JSON مسبوق أحياناً بـ"Horizon ERP DELETE error 417: " — نقتطع من أول قوس
   const brace = raw.indexOf("{");
   if (brace >= 0) {
     try {
@@ -159,7 +159,7 @@ export function translateErpError(raw: string): string {
   if (/LinkValidationError|Could not find/i.test(raw)) {
     const m = raw.match(/Could not find ([^:]+): ([^"\\,}]+)/i);
     if (m) return `السجل المرتبط غير موجود: ${m[1]} "${m[2]}" — ابحث عنه أولاً أو أنشئه ثم أعد المحاولة`;
-    // رسائل ERPNext المعرّبة: "لا يمكن أن تجد طريقة الدفع: Cash" أو نص unicode-escaped في exception
+    // رسائل Horizon ERP المعرّبة: "لا يمكن أن تجد طريقة الدفع: Cash" أو نص unicode-escaped في exception
     const mAr = raw.match(/لا يمكن أن تجد ([^:]+): ([^"\\,}]+)/);
     if (mAr) return `السجل المرتبط غير موجود: ${mAr[1].trim()} "${mAr[2].trim()}" — استخدم الاسم الفعلي كما هو مسجل في النظام (ابحث عنه أولاً)`;
     try {
@@ -183,7 +183,7 @@ export function translateErpError(raw: string): string {
     const field = raw.match(/Field not permitted in query:\s*([A-Za-z0-9_]+)/)?.[1];
     return field
       ? `لا يمكن الترشيح بالحقل "${field}" في هذا النوع — جرّب حقلاً آخر أو ابحث من الطرف المقابل. (ليست مشكلة صلاحيات)`
-      : f ? `رفض النظام الاستعلام: ${f}` : "استعلام غير مقبول من ERPNext — راجع أسماء الحقول";
+      : f ? `رفض النظام الاستعلام: ${f}` : "استعلام غير مقبول من Horizon ERP — راجع أسماء الحقول";
   }
   if (/PermissionError|not permitted/i.test(raw)) {
     const f = frappeHumanMessage(raw);
@@ -217,7 +217,7 @@ export function translateErpError(raw: string): string {
   // آخر مهرب: نصٌّ بشري إن وُجد، وإلا وصفٌ مختصر — لا JSON خام مهما كان
   const human = frappeHumanMessage(raw);
   if (human) return human.slice(0, 300);
-  // الحالة وحدها حين يرد ERPNext بجسم فارغ — أوضح من عرض "{}"
+  // الحالة وحدها حين يرد Horizon ERP بجسم فارغ — أوضح من عرض "{}"
   const status = raw.match(/error (\d{3})/)?.[1];
   if (status === "404") return "السجل غير موجود في النظام";
   if (status === "403") return "رفض النظام الوصول لهذا المسار";
@@ -227,7 +227,7 @@ export function translateErpError(raw: string): string {
     : raw.slice(0, 300);
 }
 
-// مستندات الإعدادات الفردية (Single DocTypes) في Frappe/ERPNext: ليس لها جدول سجلات،
+// مستندات الإعدادات الفردية (Single DocTypes) في Frappe/Horizon ERP: ليس لها جدول سجلات،
 // وتُقرأ وتُعدَّل باسم النوع نفسه. استعلامها كقائمة يفشل بـ ProgrammingError،
 // لذا أي Single DocType جديد يستخدمه الوكيل يجب إضافته هنا.
 export const SINGLE_DOCTYPES = new Set([
@@ -240,7 +240,7 @@ export const SINGLE_DOCTYPES = new Set([
 
 // ─── الشركة ومركز التكلفة ─────────────────────────────────────────────────────
 // نمرّر company صراحةً في المستندات بدل الاعتماد على Global Defaults، لأن كثيراً
-// من تنصيبات ERPNext تحتوي default_company يشير إلى شركة محذوفة/معاد تسميتها،
+// من تنصيبات Horizon ERP تحتوي default_company يشير إلى شركة محذوفة/معاد تسميتها،
 // فتفشل المستندات بأخطاء "مركز التكلفة لا ينتمي للشركة".
 export type CompanyInfo = { name: string; costCenter: string | null };
 export const companyCache = new Map<string, { info: CompanyInfo | null; expiry: number }>();
@@ -279,14 +279,14 @@ export async function resolveCompanyInfo(): Promise<CompanyInfo | null> {
   return info;
 }
 
-/** هل الخطأ سببه مركز تكلفة لا ينتمي للشركة؟ (ERPNext يعرّبها) */
+/** هل الخطأ سببه مركز تكلفة لا ينتمي للشركة؟ (Horizon ERP يعرّبها) */
 export function isCostCenterMismatch(err: unknown): boolean {
   const raw = err instanceof Error ? err.message : String(err);
   return /cost center|مركز التكلفة/i.test(raw) && /belong|ينتمي/i.test(raw);
 }
 
 /**
- * ينشئ مستند بيع/شراء، وإن رفض ERPNext مركز التكلفة (لأن الأصناف تحمل
+ * ينشئ مستند بيع/شراء، وإن رفض Horizon ERP مركز التكلفة (لأن الأصناف تحمل
  * item_defaults قديمة لشركة محذوفة) يعيد المحاولة مرة واحدة بمركز تكلفة الشركة
  * الصحيح بدل أن يفشل الطلب على العميل.
  */

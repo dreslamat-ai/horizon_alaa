@@ -9,17 +9,17 @@ import { inspectCustomerCompleteness, describeMissing, type CustomerDoc } from "
 import { cachedErpCapabilities } from "../erp/erpPermissions";
 
 /**
- * حجب صريح في الكود — دفاع مستقل عن صلاحيات حساب الاتصال في ERPNext.
+ * حجب صريح في الكود — دفاع مستقل عن صلاحيات حساب الاتصال في Horizon ERP.
  *
  * اكتُشف فعليًا (استعلام مباشر على tabHas Role، لا افتراض) أن حساب
  * الاختبار الحالي (mthgo103@gmail.com) يحمل أدوارًا أوسع بكثير من "موظف
  * محدود": Manufacturing Manager وStock User وManufacturing User —
  * ليست القراءة المحدودة المفترَضة في القرار القديم الموثَّق. صلاحيات
- * ERPNext نفسها هي الحاجز الأول (استعلام يتجاوزها يرجع PermissionError)،
+ * Horizon ERP نفسها هي الحاجز الأول (استعلام يتجاوزها يرجع PermissionError)،
  * لكن الاعتماد عليها وحدها خطأ: حساب لموظف Horizon مستقبلي قد يُمنح
  * صلاحيات أوسع لسبب عملي (تشغيل النظام)، وهذا لا يعني أن "ألاء" يجوز أن
  * تسرد بيانات رواتب وحسابات مستخدمين لموظف دعم يستعلم نيابةً عن عميل.
- * القائمة هنا **مستقلة تمامًا** عن أي صلاحية ERPNext — تُرفض دائمًا بغض
+ * القائمة هنا **مستقلة تمامًا** عن أي صلاحية Horizon ERP — تُرفض دائمًا بغض
  * النظر عمّا يسمح به حساب الاتصال.
  */
 const BLOCKED_DOCTYPES = new Set([
@@ -42,12 +42,12 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
       }
       // list_documents ديناميكية (doctype من args)، فـnarrowToolsByErpPermissions
       // لا تقدر تمنعها مسبقًا — فحصها هنا وقت التنفيذ الفعلي، طبقة إرشادية
-      // فقط: caps غائبة (لسه ما جُلبت) لا تمنع شيئًا، ERPNext نفسه هو الحاجز.
+      // فقط: caps غائبة (لسه ما جُلبت) لا تمنع شيئًا، Horizon ERP نفسه هو الحاجز.
       const cfg = currentErpConfig();
       const caps = cachedErpCapabilities(cfg.url, cfg.username);
       if (caps && !caps.unrestricted && !caps.can(doctype, "read")) {
         return {
-          result: { error: `صلاحيات حساب الاتصال بـ"${doctype}" لا تسمح بالقراءة (ERPNext)` },
+          result: { error: `صلاحيات حساب الاتصال بـ"${doctype}" لا تسمح بالقراءة (Horizon ERP)` },
           display: "",
         };
       }
@@ -187,7 +187,7 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
       const today = new Date().toISOString().split("T")[0];
       // due_date لا يجوز أن يسبق posting_date — إن كان التاريخ المُمرر أقدم (مثلاً من صورة فاتورة قديمة) استخدم اليوم
       // الحارس القديم كان مقارنة نصية تفترض ISO — صيغة غلط من الموديل
-      // (24-08-2026 مثلًا) كانت تعدّي وتفشّل الإنشاء عند ERPNext (مقيس حيًّا)
+      // (24-08-2026 مثلًا) كانت تعدّي وتفشّل الإنشاء عند Horizon ERP (مقيس حيًّا)
       const requestedDue = (args.due_date as string) ?? today;
       const isIso = /^\d{4}-\d{2}-\d{2}$/.test(requestedDue);
       const safeDueDate = !isIso || requestedDue < today ? today : requestedDue;

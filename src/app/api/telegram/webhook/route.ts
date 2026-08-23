@@ -1,5 +1,5 @@
 // ─── بوت تليجرام @HorizonCSBot — بوابة ألاء والبلاغات (٢٤ أغسطس ٢٠٢٦) ────────
-// التدفق: /start ⟵ إيميل ⟵ رمز يوصل على الإيميل (عبر SMTP نظام ERPNext،
+// التدفق: /start ⟵ إيميل ⟵ رمز يوصل على الإيميل (عبر SMTP نظام Horizon ERP،
 // نقطة alaa_widget.api.alaa_mail الموقَّعة بسر SSO المشترك) ⟵ توثيق.
 // موظف (horizon_staff) = ألاء كاملة بنفس أدوات الويب. عميل (إيميله مطابق
 // لعميل على النظام) = بياناته هو فقط (أداتان مقيّدتان بفلتر مفروض في
@@ -55,7 +55,7 @@ async function erpFetch(path: string, init?: RequestInit) {
   });
 }
 
-/** إيميل ⟵ هوية: موظف من horizon_staff أو عميل من ERPNext (Customer ثم Contact) */
+/** إيميل ⟵ هوية: موظف من horizon_staff أو عميل من Horizon ERP (Customer ثم Contact) */
 async function lookupIdentity(email: string): Promise<{ kind: "staff" | "customer"; name: string; erpCustomer?: string } | null> {
   const staff = await db.select().from(schema.horizonStaff).where(eq(schema.horizonStaff.email, email)).limit(1);
   if (staff.length && staff[0].isActive) return { kind: "staff", name: staff[0].name };
@@ -82,7 +82,7 @@ async function lookupIdentity(email: string): Promise<{ kind: "staff" | "custome
 
 async function sendOtpEmail(email: string, code: string) {
   // الأصل: Resend عبر HTTPS — منافذ SMTP كلها محجوبة من الدروبلت (مقيس
-  // ٢٤ أغسطس: 465/587 معلقة حتى لجيميل)، فطابور بريد ERPNext ميت أصلًا.
+  // ٢٤ أغسطس: 465/587 معلقة حتى لجيميل)، فطابور بريد Horizon ERP ميت أصلًا.
   const resendKey = process.env.RESEND_API_KEY;
   if (resendKey) {
     const res = await fetch("https://api.resend.com/emails", {

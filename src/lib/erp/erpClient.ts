@@ -1,4 +1,4 @@
-// عميل HTTP لـERPNext + سياق AsyncLocalStorage — منقولة بتصرّف من
+// عميل HTTP لـHorizon ERP + سياق AsyncLocalStorage — منقولة بتصرّف من
 // almoaser-dev/server/agent/erpClient.ts (قُرئت ١٩-٢٠ أغسطس ٢٠٢٦).
 // مرحلة ٢: runWithCustomerConfig(customerId, fn) يبني الاتصال من صف
 // alaa_customers — يحلّ محلّ runWithFixedConfig المرحلة ١.
@@ -19,7 +19,7 @@ export async function runWithCustomerConfig<T>(customerId: number, fn: () => Pro
 
 export function currentErpConfig(): ErpConfig {
   const cfg = erpContext.getStore();
-  if (!cfg) throw new Error("لا يوجد اتصال ERPNext نشط — استدعاء executeTool لازم يكون داخل runWithCustomerConfig");
+  if (!cfg) throw new Error("لا يوجد اتصال Horizon ERP نشط — استدعاء executeTool لازم يكون داخل runWithCustomerConfig");
   return cfg;
 }
 
@@ -45,11 +45,11 @@ export async function erpGET(path: string): Promise<unknown> {
       invalidateErpSession(cfg);
       const headers2 = await authHeaders();
       const res2 = await fetch(`${url}${path}`, { headers: headers2 });
-      if (!res2.ok) throw new Error(`ERPNext GET error ${res2.status}`);
+      if (!res2.ok) throw new Error(`Horizon ERP GET error ${res2.status}`);
       return res2.json();
     }
   }
-  if (!res.ok) throw new Error(`ERPNext GET error ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw new Error(`Horizon ERP GET error ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res.json();
 }
 
@@ -63,7 +63,7 @@ export async function erpPOST(path: string, body: Record<string, unknown>): Prom
   });
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`ERPNext POST error ${res.status}: ${errText.slice(0, ERROR_KEEP)}`);
+    throw new Error(`Horizon ERP POST error ${res.status}: ${errText.slice(0, ERROR_KEEP)}`);
   }
   return res.json();
 }
@@ -78,7 +78,7 @@ export async function erpPUT(path: string, body: Record<string, unknown>): Promi
   });
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`ERPNext PUT error ${res.status}: ${errText.slice(0, ERROR_KEEP)}`);
+    throw new Error(`Horizon ERP PUT error ${res.status}: ${errText.slice(0, ERROR_KEEP)}`);
   }
   return res.json();
 }

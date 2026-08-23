@@ -37,6 +37,10 @@ export function sanitizeReply(raw: string): string {
   if (foreign && foreign.length > 0 && foreign.length / Math.max(t.length, 1) < 0.05) {
     t = t.replace(/[一-鿿぀-ヿ가-힯ऀ-ॿঀ-৿฀-໿Ѐ-ӿ԰-֏]/gu, "");
   }
+  // هوية بيضاء: النظام اسمه Horizon ERP أمام المستخدم دائمًا — حتى لو
+  // الموديل تسرب منه الاسم التقني، يتبدل قبل العرض (طلب المالك الصريح)
+  t = t.replace(/ERPNext|ERPNEXT|erpnext|Frappe|frappe/g, "Horizon ERP");
+  t = t.replace(/Horizon ERP Horizon ERP/g, "Horizon ERP");
   return t.replace(/ {2,}/g, " ").trim();
 }
 

@@ -9,11 +9,11 @@ export const TOOLS = [
     type: "function" as const,
     function: {
       name: "list_documents",
-      description: "قراءة أي نوع سجل (DocType) في نظام ERPNext — موظفين، فواتير، حضور، أصناف، أي شيء. استخدمها لأي سؤال عن بيانات لا تغطيه أداة أخرى أدق.",
+      description: "قراءة أي نوع سجل (DocType) في نظام Horizon ERP — موظفين، فواتير، حضور، أصناف، أي شيء. استخدمها لأي سؤال عن بيانات لا تغطيه أداة أخرى أدق.",
       parameters: {
         type: "object",
         properties: {
-          doctype: { type: "string", description: "اسم الـDocType بالضبط كما في ERPNext، مثل Employee أو Sales Invoice أو Attendance" },
+          doctype: { type: "string", description: "اسم الـDocType بالضبط كما في Horizon ERP، مثل Employee أو Sales Invoice أو Attendance" },
           fields: { type: "array", items: { type: "string" }, description: "الحقول المطلوبة (افتراضي: name فقط)" },
           filters: { type: "object", description: "فلاتر بصيغة Frappe (اختياري)" },
           limit: { type: "number", description: "عدد النتائج (افتراضي 20، حد أقصى 100)" },
@@ -145,11 +145,11 @@ export const TOOLS = [
     type: "function" as const,
     function: {
       name: "create_invoice",
-      description: "إنشاء فاتورة مبيعات جديدة في ERPNext كمسودة. تُحتسب ضريبة القيمة المضافة 15% تلقائياً وفق النظام السعودي ما لم يحدد المستخدم خلاف ذلك",
+      description: "إنشاء فاتورة مبيعات جديدة في Horizon ERP كمسودة. تُحتسب ضريبة القيمة المضافة 15% تلقائياً وفق النظام السعودي ما لم يحدد المستخدم خلاف ذلك",
       parameters: {
         type: "object",
         properties: {
-          customer: { type: "string", description: "اسم العميل (name field في ERPNext)" },
+          customer: { type: "string", description: "اسم العميل (name field في Horizon ERP)" },
           items: {
             type: "array",
             description: "قائمة الأصناف",
@@ -199,7 +199,7 @@ export const TOOLS = [
       parameters: {
         type: "object",
         properties: {
-          doctype: { type: "string", description: "اسم DocType بالإنجليزية كما في ERPNext — أي نوع مستند: Sales Invoice, Purchase Invoice, Payment Entry, Journal Entry, Customer, Supplier, Item, Delivery Note, Sales Order, Purchase Order, Purchase Receipt, Stock Entry, Quotation, Lead, Address, Contact, Warehouse, Cost Center — أو أي DocType آخر في النظام" },
+          doctype: { type: "string", description: "اسم DocType بالإنجليزية كما في Horizon ERP — أي نوع مستند: Sales Invoice, Purchase Invoice, Payment Entry, Journal Entry, Customer, Supplier, Item, Delivery Note, Sales Order, Purchase Order, Purchase Receipt, Stock Entry, Quotation, Lead, Address, Contact, Warehouse, Cost Center — أو أي DocType آخر في النظام" },
           document_name: { type: "string", description: "رقم المستند مثل ACC-SINV-2026-00001 أو ACC-PAY-2026-00001" },
         },
         required: ["doctype", "document_name"],
