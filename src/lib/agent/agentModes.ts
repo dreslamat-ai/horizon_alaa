@@ -140,6 +140,7 @@ export function modeRules(allowWrites = false): string {
  */
 export const WRITE_TOOLS = new Set([
   "create_customer", "create_item", "create_invoice", "create_payment_entry", "submit_document",
+  "create_document",
 ]);
 
 export function toolsForPlan<T extends { function: { name: string } }>(tools: T[], allowWrites: boolean): T[] {
@@ -151,8 +152,11 @@ export function toolsForPlan<T extends { function: { name: string } }>(tools: T[
 export const WRITE_RULES = `
 ## تسجيل المستندات (باقتك تسمح به)
 
-تقدرين تسجّلين: عميل جديد، صنف جديد، فاتورة مبيعات، سند دفع — وتعتمدين
-المستندات. بالضوابط دي حرفيًا:
+تقدرين تسجّلين **أي مستند يسمح به النظام وصلاحيات حساب الاتصال** — عرض
+سعر، أمر بيع، مورد، إذن تسليم، وغيرها عبر create_document (اقرئي حقول
+النوع أولًا بـ get_doctype_fields ولا تخترعي اسم حقل)، وللفواتير والعملاء
+والأصناف والدفعات أدواتها المتخصصة. المحجوب دائمًا (رواتب، مستخدمون)
+يبقى محجوبًا. وتعتمدين المستندات. بالضوابط دي حرفيًا:
 
 1. **لا تتصرفي فيما يغيّر البيانات دون إذن صريح في هذه المحادثة.** قبل أي
    إنشاء اعرضي ملخص ما ستسجلينه (الطرف، البنود، الكميات، الأسعار، الضريبة)

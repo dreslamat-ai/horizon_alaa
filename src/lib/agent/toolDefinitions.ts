@@ -106,6 +106,36 @@ export const TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "get_doctype_fields",
+      description: "حقول أي نوع مستند (الإلزامي والاختياري وأنواعها) — استدعيها دائمًا قبل create_document لنوع لا تعرفين حقوله، ولا تخترعي اسم حقل",
+      parameters: {
+        type: "object",
+        properties: { doctype: { type: "string", description: "اسم النوع بالإنجليزية مثل Quotation أو Supplier" } },
+        required: ["doctype"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_document",
+      description: "إنشاء أي مستند يسمح به النظام (عرض سعر، أمر بيع، مورد، إذن تسليم...) كمسودة. للفواتير والعملاء والأصناف والدفعات استخدمي أدواتها المتخصصة الأذكى. اقرئي الحقول أولًا بـ get_doctype_fields",
+      parameters: {
+        type: "object",
+        properties: {
+          doctype: { type: "string" },
+          values: { type: "object", description: "حقول المستند وقيمها كما يعرفها النظام" },
+        },
+        required: ["doctype", "values"],
+        additionalProperties: false,
+      },
+    },
+  },
+
+  {
+    type: "function" as const,
+    function: {
       name: "create_customer",
       description: "إنشاء عميل جديد. لا تستخدمها أبداً قبل البحث بـ get_customers والتأكد من عدم وجود العميل — الأداة نفسها ترفض الإنشاء إذا وُجد عميل مطابق أو مشابه وتعيد قائمة المرشحين",
       parameters: {

@@ -118,6 +118,44 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
     }
 
     // ─── أدوات التسجيل — منقولة حرفيًا من سارة (حوكمتها كما هي) ───
+    case "get_doctype_fields": {
+      // قبل إنشاء أي مستند: اقرئي حقوله الفعلية — قاعدة سارة "لا تخترع أسماء حقول"
+      const dt = String(args.doctype ?? "").trim();
+      if (!dt) throw new Error("اسم DocType مطلوب");
+      if (BLOCKED_DOCTYPES.has(dt)) {
+        return { result: { error: `هذا النوع (${dt}) محجوب دائمًا — بيانات أفراد حساسة` }, display: "" };
+      }
+      const meta = await erpGET(`/api/resource/DocType/${encodeURIComponent(dt)}`) as { data?: { istable?: number; is_submittable?: number; fields?: Array<{ fieldname: string; label?: string; fieldtype: string; reqd?: number; options?: string }> } };
+      const all = meta?.data?.fields ?? [];
+      const skip = new Set(["Section Break", "Column Break", "Tab Break", "HTML", "Heading"]);
+      const brief = all.filter(f => !skip.has(f.fieldtype)).map(f => ({
+        fieldname: f.fieldname, label: f.label, fieldtype: f.fieldtype,
+        required: f.reqd === 1, ...(f.options && ["Link", "Select", "Table"].includes(f.fieldtype) ? { options: f.options } : {}),
+      }));
+      const required = brief.filter(f => f.required);
+      return {
+        result: { doctype: dt, is_submittable: meta?.data?.is_submittable === 1, required_fields: required, fields: brief.slice(0, 60) },
+        display: `حقول ${dt}: ${required.length} إلزامي`,
+      };
+    }
+    case "create_document": {
+      // إنشاء عام لأي مستند تسمح به صلاحيات حساب الاتصال — Horizon ERP نفسه
+      // يرفض ما لا يملك الحساب إنشاءه (403 تُنقل كما هي)، والمحجوب محجوب.
+      const dt = String(args.doctype ?? "").trim();
+      const values = args.values as Record<string, unknown>;
+      if (!dt) throw new Error("اسم DocType مطلوب");
+      if (BLOCKED_DOCTYPES.has(dt)) {
+        return { result: { error: `هذا النوع (${dt}) محجوب دائمًا — بيانات أفراد حساسة` }, display: "" };
+      }
+      if (!values || Object.keys(values).length === 0) throw new Error("قيم المستند مطلوبة");
+      delete (values as Record<string, unknown>).docstatus; // مسودة دائمًا — الاعتماد خطوة منفصلة
+      const data = await erpPOST(`/api/resource/${encodeURIComponent(dt)}`, values) as { data?: { name?: string } };
+      return {
+        result: data?.data,
+        display: `${dt} ${data?.data?.name ?? ""} أُنشئ مسودة`,
+      };
+    }
+
     case "create_invoice": {
       // حماية: تأكد من وجود العميل، وإن وُجد مشابه استخدمه تلقائياً
       const customerName = args.customer as string;
