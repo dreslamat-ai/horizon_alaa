@@ -91,7 +91,7 @@ export const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_invoice_pdf_link",
-      description: "رابط تحميل فاتورة كملف PDF جاهز للطباعة — استخدمها لما يُطلب إرسال/تحميل/طباعة فاتورة",
+      description: "رابط تحميل فاتورة كملف PDF جاهز للطباعة — استخدمها لما يُطلب إرسال/تحميل/طباعة فاتورة. اعرض الرابط الناتج في ردّك كرابط ماركداون بالضبط: [تحميل الفاتورة PDF](الرابط كما رجع من الأداة بلا أي تعديل)",
       parameters: {
         type: "object",
         properties: {

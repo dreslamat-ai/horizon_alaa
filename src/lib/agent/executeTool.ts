@@ -107,8 +107,10 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
       await erpGET(`/api/resource/Sales%20Invoice/${encodeURIComponent(invoiceName)}`);
       const { customerId } = currentErpConfig();
       const qs = new URLSearchParams({ customerId: String(customerId), doctype: "Sales Invoice", name: invoiceName });
+      // البادئة /alaa إلزامية: التطبيق مخدوم تحت basePath /alaa، والرابط
+      // بدونها يقع على Frappe نفسه (بلاغ حي بلقطة شاشة ٢٣ أغسطس).
       return {
-        result: { url: `/api/invoice-pdf?${qs}`, invoice_name: invoiceName },
+        result: { url: `/alaa/api/invoice-pdf?${qs}`, invoice_name: invoiceName },
         display: `رابط PDF لفاتورة ${invoiceName}`,
       };
     }

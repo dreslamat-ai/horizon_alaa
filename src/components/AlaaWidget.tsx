@@ -37,21 +37,31 @@ function escapeHtml(s: string): string {
  * لا تقع أبدًا في نص حقيقي) هي الفاصل المؤقّت بين النص والرابط — مسافة
  * عادية كانت ستنكسر لأن نص الزر يحتوي مسافات فعلاً.
  */
-const SAFE_LINK_RE = /^\/api\/invoice-pdf\?[A-Za-z0-9_=&%.\-]{1,300}$/;
+// علامة + مقبولة لأن URLSearchParams يرمّز المسافة بها (doctype=Sales+Invoice)
+// — غيابها كان يُسقط كل رابط فاتورة فعلي. والبادئة /alaa اختيارية هنا
+// لأن الموديل قد يكتب الرابط بها أو بدونها، وتُطبَّع دائمًا قبل العرض.
+const SAFE_LINK_RE = /^(?:\/alaa)?\/api\/invoice-pdf\?[A-Za-z0-9_=&%.+\-]{1,300}$/;
+const BARE_LINK_RE = /(?:\/alaa)?\/api\/invoice-pdf\?[A-Za-z0-9_=&%.+\-]{1,300}/g;
+const withAlaaPrefix = (href: string) => (href.startsWith("/alaa/") ? href : `/alaa${href}`);
 const SEP1 = "";
 const SEP2 = "";
 const SEP3 = "";
 
 /** سطر أو نص عادي بعد التهريب — بلا معالجة جداول (تُعالَج على مستوى الفقرة) */
 function formatInline(s: string): string {
-  const linkified = s.replace(/\[([^\]\n]{1,120})\]\(([^)\n]{1,300})\)/g, (_m, text: string, href: string) => {
+  let linkified = s.replace(/\[([^\]\n]{1,120})\]\(([^)\n]{1,300})\)/g, (_m, text: string, href: string) => {
     if (!SAFE_LINK_RE.test(href)) return text; // رابط غير موثوق ⇐ النص وحده بلا رابط
-    return `${SEP1}${text}${SEP2}${href}${SEP3}`;
+    return `${SEP1}${text}${SEP2}${withAlaaPrefix(href)}${SEP3}`;
   });
+  // رابط خام بلا صيغة ماركداون — الموديلات المجانية بتكتبه نصًّا كثيرًا
+  // (بلاغ حي بلقطة شاشة: رابط مبعثر غير قابل للضغط). يتحوّل لزرار تحميل.
+  // شرط "ليس بعد فاصل SEP2" يمنع إعادة التقاط روابط الماركداون المحوَّلة فوق.
+  linkified = linkified.replace(BARE_LINK_RE, (m: string, offset: number, full: string) =>
+    full[offset - 1] === SEP2 ? m : `${SEP1}⬇ تحميل الفاتورة PDF${SEP2}${withAlaaPrefix(m)}${SEP3}`);
   let h = escapeHtml(linkified);
   const linkRe = new RegExp(`${SEP1}([^${SEP2}]*)${SEP2}([^${SEP3}]*)${SEP3}`, "g");
   h = h.replace(linkRe, (_m, text: string, href: string) =>
-    `<a href="${href}" target="_blank" rel="noopener" class="underline text-[#1D2D44] font-semibold">${text}</a>`);
+    `<a href="${href}" target="_blank" rel="noopener" class="inline-block my-1 px-3 py-1.5 rounded-lg bg-[#1D2D44] text-white font-semibold no-underline">${text}</a>`);
   h = h.replace(/^\s*#{1,4}\s*(.+)$/gm, '<b class="block mt-2 mb-1 first:mt-0">$1</b>');
   h = h.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   h = h.replace(/^\s*[-*·]\s+/gm, "• ");
