@@ -81,6 +81,24 @@ async function lookupIdentity(email: string): Promise<{ kind: "staff" | "custome
 }
 
 async function sendOtpEmail(email: string, code: string) {
+  // الأصل: Resend عبر HTTPS — منافذ SMTP كلها محجوبة من الدروبلت (مقيس
+  // ٢٤ أغسطس: 465/587 معلقة حتى لجيميل)، فطابور بريد ERPNext ميت أصلًا.
+  const resendKey = process.env.RESEND_API_KEY;
+  if (resendKey) {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { authorization: `Bearer ${resendKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        from: process.env.MAIL_FROM ?? "Horizon <no-reply@almoaser.cloud>",
+        to: [email],
+        subject: "رمز دخولك — مساعدة Horizon على تليجرام",
+        html: `<div dir='rtl' style='font-family:Tahoma,Arial;font-size:15px'><p>أهلاً 👋</p><p>رمز الدخول الخاص بك:</p><p style='font-size:30px;font-weight:bold;letter-spacing:6px'>${code}</p><p>اكتبه في محادثة البوت خلال ١٠ دقائق. لو ما طلبتش الرمز تجاهل الرسالة.</p><p>— فريق Horizon</p></div>`,
+        text: `رمز دخولك: ${code} — اكتبه في محادثة البوت خلال ١٠ دقائق.`,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    return res.ok;
+  }
   const secret = process.env.ALAA_SSO_SECRET;
   if (!secret) throw new Error("ALAA_SSO_SECRET غير مضبوط");
   const cfg = await getErpConfigForCustomer(ALAA_CUSTOMER_ID);
