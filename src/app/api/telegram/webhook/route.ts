@@ -448,7 +448,12 @@ export async function POST(req: NextRequest) {
         const buf = allowed && invName ? await fetchInvoicePdf(ALAA_CUSTOMER_ID, invDoctype, invName) : null;
         console.info("[tg-pdf] name:", invName, "| allowed:", allowed, "| buf:", buf?.length ?? null);
         if (buf) {
-          answer = answer.replace(PDF_LINK_RE, "").replace(/\[([^\]]{1,120})\]\(\)/g, "").trim() || `فاتورة ${invName} — الملف مرفق 📄`;
+          // كتلة الماركداون كلها تتشال بما فيها أي دومين اخترعه الموديل حواليها
+          answer = answer
+            .replace(/\[[^\]\n]{1,120}\]\((?:https?:\/\/[^)\s]*)?(?:\/alaa)?\/api\/invoice-pdf[^)]*\)/g, "")
+            .replace(PDF_LINK_RE, "")
+            .replace(/\[([^\]]{1,120})\]\(\)/g, "")
+            .trim() || `فاتورة ${invName} — الملف مرفق 📄`;
           await say(chatId, answer, true);
           await sendPdfDocument(chatId, buf, `${invName}.pdf`, `فاتورة ${invName}`);
           console.info("[tg-pdf] أُرسل المستند");
