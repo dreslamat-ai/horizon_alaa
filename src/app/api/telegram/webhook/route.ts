@@ -43,7 +43,12 @@ function mainKeyboard() {
 
 async function say(chatId: string, text: string, withKeyboard = false) {
   // تليجرام حده 4096 محرفًا، والجداول الماركداونية بتتبعتر — تُبسَّط لنص
-  const clean = text.replace(/\*\*/g, "").replace(/^\|(.+)\|$/gm, m => m.replace(/\s*\|\s*/g, "  ·  ").replace(/^ +·|· +$/g, "")).slice(0, 4000);
+  let clean = text.replace(/\*\*/g, "");
+  // روابط الماركداون تظهر خامًا في تليجرام (بلاغ بلقطة شاشة): الداخلية
+  // (goto:/alaa) تُختزل لنصها — مالهاش معنى بره النظام — والخارجية نص+رابط
+  clean = clean.replace(/\[([^\]\n]{1,120})\]\((?:goto:[^)\n]*|(?:\/alaa)?\/api\/[^)\n]*)\)/g, "$1");
+  clean = clean.replace(/\[([^\]\n]{1,120})\]\(([^)\n]{1,300})\)/g, "$1: $2");
+  clean = clean.replace(/^\|(.+)\|$/gm, m => m.replace(/\s*\|\s*/g, "  ·  ").replace(/^ +·|· +$/g, "")).slice(0, 4000);
   await tg("sendMessage", { chat_id: chatId, text: clean, ...(withKeyboard ? { reply_markup: mainKeyboard() } : {}) });
 }
 
@@ -428,6 +433,7 @@ export async function POST(req: NextRequest) {
 
     // لو الرد فيه رابط PDF فاتورة: نزّل الملف وابعته مستندًا حقيقيًا في الشات
     const pdfMatch = answer.match(PDF_LINK_RE);
+    console.info("[tg-pdf] match:", pdfMatch?.[0] ?? "لا يوجد", "| الرد أوله:", answer.slice(0, 120));
     if (pdfMatch) {
       try {
         const q = new URLSearchParams(pdfMatch[0].split("?")[1] ?? "");
@@ -440,13 +446,23 @@ export async function POST(req: NextRequest) {
           allowed = chk.ok && (((await chk.json()) as { data?: { customer?: string } }).data?.customer === u.erpCustomer);
         }
         const buf = allowed && invName ? await fetchInvoicePdf(ALAA_CUSTOMER_ID, invDoctype, invName) : null;
+        console.info("[tg-pdf] name:", invName, "| allowed:", allowed, "| buf:", buf?.length ?? null);
         if (buf) {
           answer = answer.replace(PDF_LINK_RE, "").replace(/\[([^\]]{1,120})\]\(\)/g, "").trim() || `فاتورة ${invName} — الملف مرفق 📄`;
           await say(chatId, answer, true);
           await sendPdfDocument(chatId, buf, `${invName}.pdf`, `فاتورة ${invName}`);
+          console.info("[tg-pdf] أُرسل المستند");
           return NextResponse.json({ ok: true });
         }
-      } catch { /* يسقط للرد النصي العادي */ }
+        // الملف اترفض من النظام (ملغاة؟ نموذج؟) — قول السبب بصراحة، لا رابط خام
+        if (allowed && invName) {
+          const st = await erpFetch(`/api/resource/Sales Invoice/${encodeURIComponent(invName)}?fields=${encodeURIComponent('["docstatus"]')}`);
+          const ds = st.ok ? (((await st.json()) as { data?: { docstatus?: number } }).data?.docstatus ?? null) : null;
+          const why = ds === 2 ? `الفاتورة ${invName} ملغاة — مافيش ملف يتطبع ليها.` : `ما قدرتش أطلّع ملف ${invName} حاليًا — جرّب تاني أو من شاشة النظام.`;
+          await say(chatId, why, true);
+          return NextResponse.json({ ok: true });
+        }
+      } catch (e) { console.error("[tg-pdf] فشل:", e instanceof Error ? e.message : e); }
     }
 
     await say(chatId, answer, true);
