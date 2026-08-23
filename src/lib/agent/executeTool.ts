@@ -186,8 +186,11 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
       }
       const today = new Date().toISOString().split("T")[0];
       // due_date لا يجوز أن يسبق posting_date — إن كان التاريخ المُمرر أقدم (مثلاً من صورة فاتورة قديمة) استخدم اليوم
+      // الحارس القديم كان مقارنة نصية تفترض ISO — صيغة غلط من الموديل
+      // (24-08-2026 مثلًا) كانت تعدّي وتفشّل الإنشاء عند ERPNext (مقيس حيًّا)
       const requestedDue = (args.due_date as string) ?? today;
-      const safeDueDate = requestedDue < today ? today : requestedDue;
+      const isIso = /^\d{4}-\d{2}-\d{2}$/.test(requestedDue);
+      const safeDueDate = !isIso || requestedDue < today ? today : requestedDue;
       // ─── ضريبة القيمة المضافة: تُطبَّق من قوالب الضرائب الجاهزة في نظام المعاصر ───
       // نجلب القالب الافتراضي (أو الأول المتاح) من Sales Taxes and Charges Template دون أي إعداد يدوي من الوكيل
       const applyVat = (args.apply_vat as boolean) ?? true;
