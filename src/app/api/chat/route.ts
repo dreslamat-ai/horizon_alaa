@@ -9,7 +9,7 @@ import { db, schema } from "@/lib/db";
 import { requireStaffSession } from "@/lib/auth/session";
 import { runWithCustomerConfig } from "@/lib/erp/erpClient";
 import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
-import { modeRules, identityLine, toolsForPlan } from "@/lib/agent/agentModes";
+import { modeRules, identityLine, toolsForPlan, PLANS_ENFORCED } from "@/lib/agent/agentModes";
 import { TOOLS } from "@/lib/agent/toolDefinitions";
 import { narrowToolsByErpPermissions } from "@/lib/agent/toolPermissions";
 import { executeTool } from "@/lib/agent/executeTool";
@@ -39,11 +39,12 @@ export async function POST(req: NextRequest) {
 
   // علم الكتابة من الباقة — نفس نمط سارة: القدرة قدرة اشتراك، والفشل في
   // قراءتها يسقط للأضيق (قراءة فقط) لا للأوسع، لأن الكتابة أخطر من حرمانها.
-  let allowWrites = false;
-  try {
+  let allowWrites = true; // الباقات نايمة — PLANS_ENFORCED=false بقرار المالك
+  if (PLANS_ENFORCED) try {
     const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, customer.planId)).limit(1);
     allowWrites = plan?.allowWrites ?? false;
   } catch { allowWrites = false; }
+  if (!PLANS_ENFORCED) allowWrites = true;
 
   const systemPrompt = `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${customer.companyNameAr}**.\n\n${modeRules(allowWrites)}`;
   const llmMessages: ChatMessage[] = [

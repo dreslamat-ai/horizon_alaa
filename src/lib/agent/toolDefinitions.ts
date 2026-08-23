@@ -237,4 +237,434 @@ export const TOOLS = [
       },
     },
   },
+  // ─── إضافات من اقتراح المساعد ───
+  {
+    type: "function" as const,
+    function: {
+      name: "get_receivables_aging",
+      description: "أعمار ديون العملاء: المستحق على كل عميل موزعًا (جارٍ / 1-30 / 31-60 / 61-90 / أقدم) — لأسئلة التحصيل ومين متأخر",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_low_stock",
+      description: "الأصناف التي مخزونها الفعلي منخفض (أقل من حد يُمرر، افتراضي 10) لكل مخزن — للتنبيه قبل النفاد",
+      parameters: { type: "object", properties: { threshold: { type: "number", description: "حد الكمية" } }, additionalProperties: false },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "compare_sales_periods",
+      description: "مقارنة مبيعات الشهر الحالي بالشهر السابق: عدد الفواتير والإجمالي ونسبة التغير",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  // ─── بقية عدة سارة (كل المهارات بطلب المالك) ───
+  {
+    type: "function" as const,
+    function: {
+      name: "get_suppliers",
+      description: "جلب قائمة الموردين أو البحث عن مورد بالاسم (بحث تقريبي). استخدمها دائماً قبل إنشاء أي مورد جديد",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "عدد الموردين (افتراضي 20)" },
+          search: { type: "string", description: "بحث تقريبي باسم المورد" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_supplier",
+      description: "إنشاء مورد جديد. لا تستخدمها قبل البحث بـ get_suppliers — الأداة ترفض الإنشاء إذا وُجد مورد مشابه وتعيد المرشحين",
+      parameters: {
+        type: "object",
+        properties: {
+          supplier_name: { type: "string", description: "اسم المورد" },
+          supplier_type: { type: "string", enum: ["Company", "Individual"], description: "نوع المورد (الافتراضي Company)" },
+          mobile_no: { type: "string", description: "رقم الجوال (اختياري)" },
+          email_id: { type: "string", description: "البريد الإلكتروني (اختياري)" },
+        },
+        required: ["supplier_name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_purchase_invoices",
+      description: "جلب قائمة فواتير المشتريات مع إمكانية الفلترة بالحالة أو المورد",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "عدد الفواتير (افتراضي 10)" },
+          status: { type: "string", enum: ["Paid", "Unpaid", "Overdue", "Draft", "Cancelled"], description: "فلترة حسب الحالة" },
+          supplier: { type: "string", description: "فلترة حسب اسم المورد" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_purchase_invoice",
+      description: "إنشاء فاتورة مشتريات من مورد كمسودة. تحقق من وجود المورد والأصناف أولاً (get_suppliers/get_items) — الأداة تحل الأسماء المشابهة تلقائياً",
+      parameters: {
+        type: "object",
+        properties: {
+          supplier: { type: "string", description: "اسم المورد" },
+          items: {
+            type: "array",
+            description: "قائمة الأصناف المشتراة",
+            items: {
+              type: "object",
+              properties: {
+                item_code: { type: "string", description: "كود أو اسم الصنف" },
+                qty: { type: "number", description: "الكمية" },
+                rate: { type: "number", description: "سعر الشراء" },
+              },
+              required: ["item_code", "qty", "rate"],
+              additionalProperties: false,
+            },
+          },
+          due_date: { type: "string", description: "تاريخ الاستحقاق YYYY-MM-DD (اختياري)" },
+        },
+        required: ["supplier", "items"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_payments",
+      description: "جلب قائمة الدفعات (Payment Entries) المستلمة والمدفوعة مع إمكانية الفلترة",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "عدد الدفعات (افتراضي 10)" },
+          payment_type: { type: "string", enum: ["Receive", "Pay"], description: "Receive = مستلمة من عميل، Pay = مدفوعة لمورد" },
+          party: { type: "string", description: "فلترة حسب اسم العميل أو المورد" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_accounts",
+      description: "جلب شجرة الحسابات أو البحث عن حساب بالاسم — استخدمها قبل إنشاء قيد يومية لمعرفة أسماء الحسابات الفعلية",
+      parameters: {
+        type: "object",
+        properties: {
+          search: { type: "string", description: "بحث باسم الحساب مثل Cash أو الصندوق أو المبيعات" },
+          root_type: { type: "string", enum: ["Asset", "Liability", "Equity", "Income", "Expense"], description: "فلترة حسب التصنيف (اختياري)" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_journal_entries",
+      description: "جلب قيود اليومية المسجلة",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "عدد القيود (افتراضي 10)" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_journal_entry",
+      description: "تسجيل قيد يومية محاسبي (مدين/دائن). يجب أن يتساوى إجمالي المدين مع إجمالي الدائن. ابحث عن أسماء الحسابات الفعلية بـ get_accounts أولاً. يُنشأ كمسودة ثم يُعتمد بـ submit_document",
+      parameters: {
+        type: "object",
+        properties: {
+          entries: {
+            type: "array",
+            description: "سطور القيد — كل سطر حساب مع مبلغ مدين أو دائن",
+            items: {
+              type: "object",
+              properties: {
+                account: { type: "string", description: "اسم الحساب الفعلي من شجرة الحسابات" },
+                debit: { type: "number", description: "المبلغ المدين (0 إذا كان السطر دائناً)" },
+                credit: { type: "number", description: "المبلغ الدائن (0 إذا كان السطر مديناً)" },
+              },
+              required: ["account", "debit", "credit"],
+              additionalProperties: false,
+            },
+          },
+          remark: { type: "string", description: "البيان / وصف القيد" },
+          posting_date: { type: "string", description: "تاريخ القيد YYYY-MM-DD (اختياري — الافتراضي اليوم)" },
+        },
+        required: ["entries"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_document",
+      description: "تعديل أي مستند أو سجل في النظام: فاتورة (مسودة فقط)، عميل، مورد، صنف، قيد يومية (مسودة)، دفعة (مسودة). مرر الحقول المراد تغييرها فقط في fields. المستندات المعتمدة (docstatus=1) لا يمكن تعديلها — يجب إلغاؤها أولاً بـ cancel_document ثم إنشاء بديل، أما العملاء/الموردين/الأصناف فتُعدَّل مباشرة في أي وقت",
+      parameters: {
+        type: "object",
+        properties: {
+          doctype: { type: "string", description: "اسم DocType بالإنجليزية كما في Horizon ERP — أي نوع مستند: Sales Invoice, Purchase Invoice, Payment Entry, Journal Entry, Customer, Supplier, Item, Delivery Note, Sales Order, Purchase Order, Purchase Receipt, Stock Entry, Quotation, Lead, Address, Contact, Warehouse, Cost Center — أو أي DocType آخر في النظام" },
+          document_name: { type: "string", description: "معرّف المستند: رقم الفاتورة أو اسم العميل/المورد/الصنف كما هو في النظام" },
+          fields: {
+            type: "object",
+            description: "الحقول المراد تعديلها بصيغة Horizon ERP، مثل: {\"customer_name\": \"الاسم الجديد\"} أو {\"mobile_no\": \"0555...\"} أو {\"standard_rate\": 150} أو {\"due_date\": \"2026-08-01\"}",
+            additionalProperties: true,
+          },
+        },
+        required: ["doctype", "document_name", "fields"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "cancel_document",
+      description: "إلغاء (Cancel) مستند معتمد: فاتورة مبيعات/مشتريات، دفعة، أو قيد يومية. الإلغاء يعكس أثر المستند على الحسابات. مطلوب قبل حذف أي مستند معتمد",
+      parameters: {
+        type: "object",
+        properties: {
+          doctype: { type: "string", description: "اسم DocType بالإنجليزية كما في Horizon ERP — أي نوع مستند: Sales Invoice, Purchase Invoice, Payment Entry, Journal Entry, Customer, Supplier, Item, Delivery Note, Sales Order, Purchase Order, Purchase Receipt, Stock Entry, Quotation, Lead, Address, Contact, Warehouse, Cost Center — أو أي DocType آخر في النظام" },
+          document_name: { type: "string", description: "رقم المستند المعتمد" },
+        },
+        required: ["doctype", "document_name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "delete_document",
+      description: "حذف نهائي لأي مستند أو سجل: فاتورة، عميل، مورد، صنف، قيد، دفعة. المستند المعتمد يُلغى تلقائياً أولاً ثم يُحذف. تحذير: الحذف نهائي ولا يمكن التراجع عنه — اطلب تأكيد المستخدم دائماً قبل التنفيذ",
+      parameters: {
+        type: "object",
+        properties: {
+          doctype: { type: "string", description: "اسم DocType بالإنجليزية كما في Horizon ERP — أي نوع مستند: Sales Invoice, Purchase Invoice, Payment Entry, Journal Entry, Customer, Supplier, Item, Delivery Note, Sales Order, Purchase Order, Purchase Receipt, Stock Entry, Quotation, Lead, Address, Contact, Warehouse, Cost Center — أو أي DocType آخر في النظام" },
+          document_name: { type: "string", description: "معرّف المستند المراد حذفه" },
+        },
+        required: ["doctype", "document_name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "department_review",
+      description:
+        "مراجعة فريق الأقسام لدفاتر النشاط. المحاسب يفحص تطابق الفواتير مع بنودها والمسودّات القديمة والفواتير الضريبية بلا رقم ضريبي، وأمين المخزن يفحص الأرصدة السالبة وحدود إعادة الطلب والأصناف التي تُباع دون تكلفتها، ومدقّق الائتمان يفحص المتأخرات وتجاوز حدود الائتمان، ومدير المبيعات يفحص العملاء المتوقّفين. تُستدعى حين يسأل «راجع حساباتي» أو «فيه مشاكل عندي؟» أو «كل حاجة تمام؟»",
+      parameters: {
+        type: "object",
+        properties: {
+          department: {
+            type: "string",
+            enum: ["all", "accounting", "inventory", "credit", "sales"],
+            description: "القسم المطلوب، أو all للجميع",
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_sales_report",
+      description: "جلب تقرير ملخص المبيعات والإيرادات لفترة زمنية",
+      parameters: {
+        type: "object",
+        properties: {
+          period: { type: "string", enum: ["this_month", "last_month", "this_year"], description: "الفترة الزمنية" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_custom_field",
+      description: "إضافة حقل مخصص إلى نوع مستند في نظام العميل (مثل حقل 'رقم أمر الشراء' على فاتورة المبيعات). إعداد لا حركة محاسبية. **لا تستدعِها قبل عرض التفاصيل على العميل وأخذ موافقته** — ترفض بلا confirmed: true",
+      parameters: {
+        type: "object",
+        properties: {
+          doctype: { type: "string", description: "نوع المستند مثل Sales Invoice" },
+          label: { type: "string", description: "التسمية الظاهرة للمستخدم" },
+          fieldname: { type: "string", description: "الاسم البرمجي بحروف إنجليزية صغيرة وشرطات سفلية" },
+          fieldtype: { type: "string", enum: ["Data", "Int", "Float", "Currency", "Date", "Datetime", "Select", "Check", "Small Text", "Text", "Link"], description: "نوع الحقل" },
+          options: { type: "string", description: "لـ Select: الخيارات مفصولة بأسطر. لـ Link: اسم الدوكتايب المرتبط" },
+          insert_after: { type: "string", description: "اسم الحقل الذي يظهر بعده" },
+          reqd: { type: "boolean", description: "هل الحقل إلزامي" },
+          confirmed: { type: "boolean", description: "true فقط بعد موافقة العميل الصريحة" },
+        },
+        required: ["doctype", "label", "fieldname", "fieldtype", "confirmed"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_print_format",
+      description: "إنشاء نموذج طباعة مخصص لنوع مستند بصيغة HTML/Jinja. **اطلب من العميل أولاً شعاره أو ترويسته (letterhead) كصورة، واعرض عليه خيارات الخط** — النموذج بلا شعار وبلا خط عربي يبدو رديئاً على فاتورة تصل لعملائه. **لا تستدعِها قبل عرض التصميم على العميل وأخذ موافقته** — ترفض بلا confirmed: true. النموذج يُنشأ غير مفعّل افتراضياً حتى يعتمده العميل",
+      parameters: {
+        type: "object",
+        properties: {
+          doctype: { type: "string", description: "نوع المستند مثل Sales Invoice" },
+          name: { type: "string", description: "اسم النموذج" },
+          html: { type: "string", description: "قالب Jinja/HTML كامل. استخدم doc.field للوصول للحقول" },
+          css: { type: "string", description: "تنسيق CSS اختياري" },
+          font: { type: "string", enum: ["Cairo", "Tajawal", "IBM Plex Sans Arabic", "Almarai", "Noto Naskh Arabic"], description: "خط عربي للنموذج — Cairo واضح وعملي للفواتير، Tajawal أنعم، Almarai أعرض، Noto Naskh تقليدي" },
+          letterhead_url: { type: "string", description: "رابط صورة الترويسة أو الشعار الذي أرسله العميل (رابط ملف في نظامه مثل /files/logo.png) — يوضع خلفية للنموذج" },
+          confirmed: { type: "boolean", description: "true فقط بعد موافقة العميل الصريحة" },
+        },
+        required: ["doctype", "name", "html", "confirmed"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_customer",
+      description: "تحديث بيانات عميل قائم: الرقم الضريبي، نوعه (شركة/فرد)، وعنوانه. استخدمها عند رفض إنشاء فاتورة بسبب customer_data_incomplete — اطلب الناقص من المستخدم أولاً ثم سجّله هنا. الرقم الضريبي يُفحص شكلياً ويُرفض إن كانت صيغته خاطئة",
+      parameters: {
+        type: "object",
+        properties: {
+          customer: { type: "string", description: "اسم العميل كما هو في النظام" },
+          tax_id: { type: "string", description: "الرقم الضريبي — اتركه فارغاً لعدم تغييره" },
+          customer_type: { type: "string", enum: ["Company", "Individual"], description: "نوع العميل" },
+          address_line1: { type: "string", description: "الشارع/المبنى" },
+          city: { type: "string", description: "المدينة" },
+          country: { type: "string", description: "الدولة" },
+          pincode: { type: "string", description: "الرمز البريدي" },
+        },
+        required: ["customer"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_workflow_options",
+      description: "قراءة الحالات والإجراءات والأدوار المتاحة في نظام العميل لبناء دورة عمل. **استدعها دائماً قبل create_workflow** — أسماء الحالات والإجراءات روابط لسجلات قائمة، واختراع اسم غير موجود يُفشل الإنشاء",
+      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_workflows",
+      description: "عرض دورات العمل (Workflows) المعرّفة في نظام العميل، اختيارياً لنوع مستند بعينه. استخدمها عند تقييم النظام أو قبل اقتراح دورة جديدة",
+      parameters: {
+        type: "object",
+        properties: { document_type: { type: "string", description: "نوع المستند مثل Sales Invoice — اتركه فارغاً لعرض الكل" } },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_workflow",
+      description: "إنشاء دورة عمل (Workflow) لنوع مستند: حالات وانتقالات وأدوار الموافقة. إعداد نظام لا حركة محاسبية. **لا تستدعِها قبل عرض التصميم على العميل والحصول على موافقته الصريحة** — ترفض التنفيذ إن لم تُمرّر confirmed: true",
+      parameters: {
+        type: "object",
+        properties: {
+          workflow_name: { type: "string", description: "اسم دورة العمل" },
+          document_type: { type: "string", description: "نوع المستند مثل Sales Invoice" },
+          states: {
+            type: "array",
+            description: "الحالات بالترتيب",
+            items: {
+              type: "object",
+              properties: {
+                state: { type: "string", description: "اسم الحالة" },
+                allow_edit: { type: "string", description: "الدور الذي يملك التعديل في هذه الحالة" },
+                doc_status: { type: "string", enum: ["0", "1", "2"], description: "0 مسودة، 1 مُرحّل، 2 ملغى" },
+              },
+              required: ["state", "allow_edit", "doc_status"],
+              additionalProperties: false,
+            },
+          },
+          transitions: {
+            type: "array",
+            description: "الانتقالات بين الحالات",
+            items: {
+              type: "object",
+              properties: {
+                state: { type: "string", description: "الحالة الحالية" },
+                action: { type: "string", description: "اسم الإجراء" },
+                next_state: { type: "string", description: "الحالة التالية" },
+                allowed: { type: "string", description: "الدور المسموح له بالإجراء" },
+              },
+              required: ["state", "action", "next_state", "allowed"],
+              additionalProperties: false,
+            },
+          },
+          confirmed: { type: "boolean", description: "true فقط بعد موافقة العميل الصريحة على التصميم" },
+        },
+        required: ["workflow_name", "document_type", "states", "transitions", "confirmed"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "check_tax_setup",
+      description: "فحص إعدادات الضريبة في نظام العميل (قالب ضريبة المبيعات + الرقم الضريبي للشركة). استخدمها في بداية التعامل مع عميل جديد أو عند أي شك، وأبلغ العميل بنتيجتها إن كان هناك نقص",
+      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "setup_tax_settings",
+      description: "ضبط إعدادات الضريبة للعميل: إنشاء قالب ضريبة مبيعات افتراضي بالنسبة المطلوبة و/أو تسجيل الرقم الضريبي للشركة. **لا تستدعِها أبداً قبل أن تُبلغ العميل بما هو ناقص وتحصل على موافقته الصريحة** — الأداة ترفض التنفيذ إن لم تُمرّر confirmed: true",
+      parameters: {
+        type: "object",
+        properties: {
+          confirmed: { type: "boolean", description: "اجعلها true فقط بعد أن يوافق العميل صراحةً على أن تضبط له إعدادات الضريبة" },
+          rate: { type: "number", description: "نسبة الضريبة المئوية (15 للسعودية، 14 لمصر، 5 للإمارات... اسأل العميل إن لم تكن متأكداً)" },
+          company_tax_id: { type: "string", description: "الرقم الضريبي للشركة (البائع) إن كان ناقصاً وأعطاه العميل" },
+          account_head: { type: "string", description: "اسم الحساب الضريبي في شجرة الحسابات (اختياري — يُحل تلقائياً إن تُرك فارغاً)" },
+        },
+        required: ["confirmed", "rate"],
+        additionalProperties: false,
+      },
+    },
+  },
 ] as const;

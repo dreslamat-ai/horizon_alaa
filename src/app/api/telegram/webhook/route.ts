@@ -12,7 +12,7 @@ import { db, schema } from "@/lib/db";
 import { runWithCustomerConfig } from "@/lib/erp/erpClient";
 import { getErpConfigForCustomer, getErpAuthHeader } from "@/lib/erp/erpConnection";
 import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
-import { modeRules, identityLine, toolsForPlan } from "@/lib/agent/agentModes";
+import { modeRules, identityLine, toolsForPlan, PLANS_ENFORCED } from "@/lib/agent/agentModes";
 import { TOOLS } from "@/lib/agent/toolDefinitions";
 import { executeTool } from "@/lib/agent/executeTool";
 import { invokeAgentLLM } from "@/lib/llm/llmProvider";
@@ -150,11 +150,12 @@ async function alaaAnswer(userText: string, who: { kind: "staff" | "customer"; n
   const access = await assertAlaaAccessAllowed(ALAA_CUSTOMER_ID);
   if (!access.ok) return "الخدمة موقوفة مؤقتًا — تواصل مع إدارة Horizon.";
 
-  let allowWrites = false;
-  try {
+  let allowWrites = true; // الباقات نايمة — PLANS_ENFORCED=false بقرار المالك
+  if (PLANS_ENFORCED) try {
     const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, access.customer.planId)).limit(1);
     allowWrites = plan?.allowWrites ?? false;
   } catch { allowWrites = false; }
+  if (!PLANS_ENFORCED) allowWrites = true;
 
   const isCustomer = who.kind === "customer";
   const system = isCustomer

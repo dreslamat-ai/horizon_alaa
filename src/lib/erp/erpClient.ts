@@ -86,3 +86,18 @@ export async function erpPUT(path: string, body: Record<string, unknown>): Promi
 export function erpApiBase(): string {
   return currentErpConfig().url.replace(/\/+$/, "");
 }
+
+export async function erpDELETE(path: string): Promise<void> {
+  const url = erpBaseUrl();
+  const headers = await authHeaders();
+  const res = await fetch(`${url}${path}`, { method: "DELETE", headers: { ...headers, "X-Frappe-CSRF-Token": "fetch" } });
+  if (!res.ok && res.status !== 202) {
+    const errText = await res.text();
+    throw new Error(`Horizon ERP DELETE error ${res.status}: ${errText.slice(0, ERROR_KEEP)}`);
+  }
+}
+
+export async function cancelDoc(doctype: string, docName: string): Promise<{ name: string; docstatus?: number }> {
+  const data = await erpPOST("/api/method/frappe.client.cancel", { doctype, name: docName }) as { message?: { name: string; docstatus?: number } };
+  return data?.message ?? { name: docName };
+}
