@@ -17,6 +17,7 @@ import { TOOLS } from "@/lib/agent/toolDefinitions";
 import { executeTool } from "@/lib/agent/executeTool";
 import { invokeAgentLLM } from "@/lib/llm/llmProvider";
 import { sanitizeReply, isUsableReply, UNUSABLE_REPLY_FALLBACK } from "@/lib/agent/replyGuard";
+import { fetchInvoicePdf } from "@/lib/erp/invoicePdf";
 
 const ALAA_CUSTOMER_ID = Number(process.env.TG_ALAA_CUSTOMER ?? 1);
 const OWNER_CHAT = process.env.TG_OWNER_CHAT ?? "119770400";
@@ -24,7 +25,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REPORT_BTN = "🆕 تسجيل بلاغ";
 const CHAT_BTN = "💬 اسأل ألاء";
 
-type TgUpdate = { message?: { chat?: { id?: number }; from?: { first_name?: string }; text?: string } };
+type TgUpdate = { message?: { chat?: { id?: number }; from?: { first_name?: string }; text?: string; caption?: string; voice?: { file_id: string; duration?: number }; photo?: Array<{ file_id: string; width: number; height: number }>; document?: { file_id: string; mime_type?: string } } };
 
 async function tg(method: string, payload: Record<string, unknown>) {
   const token = process.env.TG_BOT_TOKEN;
@@ -112,6 +113,96 @@ async function sendOtpEmail(email: string, code: string) {
   });
   return res.ok;
 }
+
+
+/** تنزيل ملف من تليجرام (صوت/صورة) — يرجع Buffer */
+async function tgDownload(fileId: string): Promise<Buffer | null> {
+  const token = process.env.TG_BOT_TOKEN;
+  const info = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
+  const j = (await info.json()) as { ok?: boolean; result?: { file_path?: string } };
+  const path = j?.result?.file_path;
+  if (!path) return null;
+  const res = await fetch(`https://api.telegram.org/file/bot${token}/${path}`);
+  if (!res.ok) return null;
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/** تفريغ صوتي عربي عبر whisper — الميزة الوحيدة عالميًا عند زوهو وبالإنجليزي فقط */
+async function transcribeVoice(fileId: string): Promise<string | null> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+  const buf = await tgDownload(fileId);
+  if (!buf) return null;
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(buf)], { type: "audio/ogg" }), "voice.ogg");
+  form.append("model", "whisper-1");
+  form.append("language", "ar");
+  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { authorization: `Bearer ${key}` },
+    body: form,
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) return null;
+  const out = (await res.json()) as { text?: string };
+  return out?.text?.trim() || null;
+}
+
+/** استخراج فاتورة من صورة — موديل رؤية مجاني أولًا ثم OpenAI */
+async function extractInvoiceFromPhoto(fileId: string): Promise<string | null> {
+  const buf = await tgDownload(fileId);
+  if (!buf) return null;
+  const b64 = `data:image/jpeg;base64,${buf.toString("base64")}`;
+  const prompt = "هذه صورة فاتورة/إيصال. استخرج منها JSON فقط بلا أي نص آخر بالحقول: supplier (اسم المورد/المحل), date (YYYY-MM-DD إن وُجد), items (مصفوفة {name, qty, rate}), tax_amount, grand_total, currency. الأرقام أرقامًا لا نصوصًا. ما لم تجده اجعله null.";
+  const body = (model: string) => JSON.stringify({
+    model,
+    messages: [{ role: "user", content: [
+      { type: "text", text: prompt },
+      { type: "image_url", image_url: { url: b64 } },
+    ] }],
+    max_tokens: 800,
+  });
+  const orKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (orKey) {
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${orKey}` },
+        body: body("nvidia/nemotron-nano-12b-v2-vl:free"),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (r.ok) {
+        const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const c = j?.choices?.[0]?.message?.content?.trim();
+        if (c && c.includes("{")) return c;
+      }
+    } catch { /* يسقط للمدفوع */ }
+  }
+  const oaKey = process.env.OPENAI_API_KEY;
+  if (!oaKey) return null;
+  const r2 = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${oaKey}` },
+    body: body("gpt-4.1-mini"),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!r2.ok) return null;
+  const j2 = (await r2.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  return j2?.choices?.[0]?.message?.content?.trim() || null;
+}
+
+
+/** إرسال مستند PDF فعلي في الشات — الرابط في تليجرام يتطلب جلسة ويب فلا ينفع */
+async function sendPdfDocument(chatId: string, buf: Buffer, filename: string, caption: string) {
+  const token = process.env.TG_BOT_TOKEN;
+  const form = new FormData();
+  form.append("chat_id", chatId);
+  form.append("caption", caption);
+  form.append("document", new Blob([new Uint8Array(buf)], { type: "application/pdf" }), filename);
+  await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: form });
+}
+
+const PDF_LINK_RE = /(?:\/alaa)?\/api\/invoice-pdf\?[A-Za-z0-9_=&%.+\-]{1,300}/;
 
 const otpHashOf = (code: string, chatId: string) => createHash("sha256").update(`${code}:${chatId}`).digest("hex");
 
@@ -221,9 +312,46 @@ export async function POST(req: NextRequest) {
   }
   const update = (await req.json().catch(() => null)) as TgUpdate | null;
   const chatIdNum = update?.message?.chat?.id;
-  const text = (update?.message?.text ?? "").trim();
-  if (!chatIdNum || !text) return NextResponse.json({ ok: true });
+  if (!chatIdNum) return NextResponse.json({ ok: true });
   const chatId = String(chatIdNum);
+
+  let text = (update?.message?.text ?? "").trim();
+
+  // 🎙️ رسالة صوتية ⟵ تفريغ عربي ثم نفس المسار بالضبط
+  if (!text && update?.message?.voice?.file_id) {
+    const heard = await transcribeVoice(update.message.voice.file_id).catch(() => null);
+    if (!heard) {
+      await say(chatId, "ما قدرتش أسمع الرسالة — جرّب تاني أو اكتبها.");
+      return NextResponse.json({ ok: true });
+    }
+    await say(chatId, `🎙️ سمعتك: «${heard}»`);
+    text = heard;
+  }
+
+  // 📷 صورة فاتورة ⟵ استخراج ثم حوار تأكيد عبر مسار ألاء نفسه
+  if (!text && update?.message?.photo?.length) {
+    const rows0 = await db.select().from(schema.alaaTgUsers).where(eq(schema.alaaTgUsers.chatId, chatId)).limit(1);
+    const u0 = rows0[0];
+    if (!u0?.verifiedAt) {
+      await say(chatId, "وثّق دخولك الأول (ابعت إيميلك) وبعدها ابعت صورة الفاتورة.");
+      return NextResponse.json({ ok: true });
+    }
+    if (u0.kind === "customer") {
+      await say(chatId, "تسجيل الفواتير من الصور متاح لفريق Horizon فقط حاليًا.");
+      return NextResponse.json({ ok: true });
+    }
+    await say(chatId, "📷 استلمت الصورة — بقرأها…");
+    const best = update.message.photo[update.message.photo.length - 1];
+    const extracted = await extractInvoiceFromPhoto(best.file_id).catch(() => null);
+    if (!extracted) {
+      await say(chatId, "ما قدرتش أقرأ الفاتورة من الصورة — جرّب صورة أوضح.");
+      return NextResponse.json({ ok: true });
+    }
+    const capt = (update.message.caption ?? "").trim();
+    text = `صوّرت فاتورة وتم استخراج بياناتها آليًا (قد يحتاج تدقيقك):\n${extracted}\n${capt ? `ملاحظتي: ${capt}\n` : ""}اعرضي ملخص الفاتورة المستخرجة واسأليني عن أي نقص، وبعد تأكيدي سجليها فاتورة شراء مسودة.`;
+  }
+
+  if (!text) return NextResponse.json({ ok: true });
 
   try {
     const rows = await db.select().from(schema.alaaTgUsers).where(eq(schema.alaaTgUsers.chatId, chatId)).limit(1);
@@ -296,7 +424,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    const answer = await alaaAnswer(text, { kind: u.kind ?? "customer", name: u.displayName ?? "", erpCustomer: u.erpCustomer ?? undefined });
+    let answer = await alaaAnswer(text, { kind: u.kind ?? "customer", name: u.displayName ?? "", erpCustomer: u.erpCustomer ?? undefined });
+
+    // لو الرد فيه رابط PDF فاتورة: نزّل الملف وابعته مستندًا حقيقيًا في الشات
+    const pdfMatch = answer.match(PDF_LINK_RE);
+    if (pdfMatch) {
+      try {
+        const q = new URLSearchParams(pdfMatch[0].split("?")[1] ?? "");
+        const invName = q.get("name") ?? "";
+        const invDoctype = q.get("doctype") ?? "Sales Invoice";
+        // العميل الموثق لا يستلم إلا فاتورته هو — نفس فلترة أدواته
+        let allowed = true;
+        if (u.kind === "customer") {
+          const chk = await erpFetch(`/api/resource/Sales Invoice/${encodeURIComponent(invName)}`);
+          allowed = chk.ok && (((await chk.json()) as { data?: { customer?: string } }).data?.customer === u.erpCustomer);
+        }
+        const buf = allowed && invName ? await fetchInvoicePdf(ALAA_CUSTOMER_ID, invDoctype, invName) : null;
+        if (buf) {
+          answer = answer.replace(PDF_LINK_RE, "").replace(/\[([^\]]{1,120})\]\(\)/g, "").trim() || `فاتورة ${invName} — الملف مرفق 📄`;
+          await say(chatId, answer, true);
+          await sendPdfDocument(chatId, buf, `${invName}.pdf`, `فاتورة ${invName}`);
+          return NextResponse.json({ ok: true });
+        }
+      } catch { /* يسقط للرد النصي العادي */ }
+    }
+
     await say(chatId, answer, true);
     return NextResponse.json({ ok: true });
   } catch (e) {

@@ -1,34 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaffSession } from "@/lib/auth/session";
-import { getErpConfigForCustomer, getErpAuthHeader } from "@/lib/erp/erpConnection";
+import { fetchInvoicePdf } from "@/lib/erp/invoicePdf";
 
-/**
- * النموذج الافتراضي للدوكتايب من Property Setter عند العميل — نفس المصدر
- * الذي تقرأ منه شاشة الطباعة في ERPNext. فشل الاستعلام لا يمنع التحميل
- * (يرجع null فيُستخدم Standard) — نموذج غير مثالي أفضل من لا ملف.
- */
-async function resolveDefaultPrintFormat(
-  baseUrl: string,
-  auth: { header: string; value: string },
-  doctype: string
-): Promise<string | null> {
-  try {
-    const filters = encodeURIComponent(JSON.stringify([
-      ["doc_type", "=", doctype],
-      ["property", "=", "default_print_format"],
-    ]));
-    const res = await fetch(
-      `${baseUrl}/api/resource/Property%20Setter?filters=${filters}&fields=${encodeURIComponent('["value"]')}&limit_page_length=1`,
-      { headers: { [auth.header]: auth.value } }
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as { data?: Array<{ value?: string }> };
-    const value = data?.data?.[0]?.value?.trim();
-    return value || null;
-  } catch {
-    return null;
-  }
-}
 
 // بروكسي تحميل PDF — لماذا لا رابط مباشر لـERPNext في رد النموذج: الموظف
 // (مستخدم ألاء) لا حساب له على نظام العميل غالبًا، فرابط مباشر يوصله
@@ -52,31 +25,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const cfg = await getErpConfigForCustomer(customerId);
-    const auth = await getErpAuthHeader(cfg);
-    // نموذج الطباعة الافتراضي يُقرأ من نظام العميل نفسه (Property Setter
-    // على الدوكتايب) لا يُثبَّت هنا — "Standard" الثابتة كانت بتتجاهل
-    // النموذج المعتمد فعليًا عند العميل (بلاغ حي من المالك). لو ما فيش
-    // افتراضي معرَّف يرجع "Standard" كما كان.
-    const format = (await resolveDefaultPrintFormat(cfg.url, auth, doctype)) ?? "Standard";
-    const qs = new URLSearchParams({ doctype, name, format, no_letterhead: "0" });
-    // مولّد كروم (v16) يرندر النماذج المصمَّمة للمتصفح كما هي — wkhtmltopdf
-    // كان يقصّ الأطراف ويُسقط خلفية الترويسة (مقيس ببروتوتايبات فعلية).
-    // نسخة عميل أقدم لا تعرف الباراميتر ⇐ إعادة محاولة بدونه، لا فشل.
-    qs.set("pdf_generator", "chrome");
-    let res = await fetch(`${cfg.url}/api/method/frappe.utils.print_format.download_pdf?${qs}`, {
-      headers: { [auth.header]: auth.value },
-    });
-    if (!res.ok) {
-      qs.delete("pdf_generator");
-      res = await fetch(`${cfg.url}/api/method/frappe.utils.print_format.download_pdf?${qs}`, {
-        headers: { [auth.header]: auth.value },
-      });
+    // المنطق الكامل (النموذج الافتراضي + كروم مع الرجوع) اتوحّد في
+    // invoicePdf.ts — نفس المسار يخدم الويب وبوت تليجرام (اللي بيبعت الملف).
+    const rawBuf = await fetchInvoicePdf(customerId, doctype, name);
+    if (!rawBuf) {
+      return NextResponse.json({ error: "تعذّر جلب الملف من Horizon ERP" }, { status: 502 });
     }
-    if (!res.ok) {
-      return NextResponse.json({ error: `تعذّر جلب الملف من ERPNext (${res.status})` }, { status: 502 });
-    }
-    const buf = await res.arrayBuffer();
+    const buf = new Uint8Array(rawBuf);
     return new NextResponse(buf, {
       headers: {
         "Content-Type": "application/pdf",
