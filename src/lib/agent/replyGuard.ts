@@ -17,6 +17,29 @@ const LATIN_STUCK_TO_ARABIC = /[؀-ۿ][a-zA-Z]{2,}|[a-zA-Z]{2,}[؀-ۿ]/u;
  * هل الرد صالح للعرض؟ يُستدعى بعد verifyReply — الاثنان مستقلان: هذا
  * يفحص جودة اللغة، ذاك يفحص صدق الادّعاء.
  */
+/**
+ * تنظيف رد الموديلات المجانية قبل الحكم عليه — بلاغ حي وقت عرض على عميل:
+ * "خلل في صياغة الرد" على طلبات الشرح. موديلات الاستدلال المجانية بتسرّب
+ * وسوم تفكير وحروفًا أجنبية شاردة وحرفًا لاتينيًا ملاصقًا للعربي — كلها
+ * قابلة للإصلاح الآلي، ورمي الرد كله بسببها بيحوّل عيبًا تجميليًا لعطل.
+ */
+export function sanitizeReply(raw: string): string {
+  let t = raw;
+  t = t.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  // وسم تفكير غير مقفول في أول الرد — الرد الفعلي بعده
+  if (/^\s*<think>/i.test(t)) t = t.replace(/^\s*<think>[\s\S]*/i, "");
+  t = t.replace(/[​‎‏﻿]/g, "");
+  // لاتيني ملاصق للعربي ⇐ مسافة فاصلة بدل رفض الرد كله
+  t = t.replace(/([؀-ۿ])([a-zA-Z])/g, "$1 $2");
+  t = t.replace(/([a-zA-Z])([؀-ۿ])/g, "$1 $2");
+  // حروف أجنبية قليلة (<5٪) = تسريب شارد يتشال؛ كثيرة = رد أجنبي فعلًا يُرفض
+  const foreign = t.match(/[一-鿿぀-ヿ가-힯ऀ-ॿঀ-৿฀-໿Ѐ-ӿ԰-֏]/gu);
+  if (foreign && foreign.length > 0 && foreign.length / Math.max(t.length, 1) < 0.05) {
+    t = t.replace(/[一-鿿぀-ヿ가-힯ऀ-ॿঀ-৿฀-໿Ѐ-ӿ԰-֏]/gu, "");
+  }
+  return t.replace(/ {2,}/g, " ").trim();
+}
+
 export function isUsableReply(reply: string): boolean {
   const t = reply.trim();
   if (t.length < 2) return false;
