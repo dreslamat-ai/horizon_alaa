@@ -5,7 +5,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireStaffSession } from "@/lib/auth/session";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/sso", "/api/widget-status"];
+// ويبهوك تليجرام عام لكن محمي بسر التوقيع x-telegram-bot-api-secret-token داخل المسار نفسه
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/sso", "/api/widget-status", "/api/telegram/webhook"];
 const ADMIN_ONLY_PREFIXES = ["/settings", "/api/settings"];
 // أصول ثابتة من public/ (زي أفاتار ألاء) — عُرِف حيًا: كانت بتتحوّل لـ/login
 // لأن matcher الأصلي استثنى _next/* بس، مش ملفات public/ نفسها.

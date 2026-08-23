@@ -93,3 +93,19 @@ export const alaaMessages = sqliteTable("alaa_messages", {
   creditsCost: integer("credits_cost").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
 });
+
+// ربط شات تليجرام بهوية موثّقة برمز إيميل — بوت @HorizonCSBot (٢٤ أغسطس).
+// kind=staff: موظف من horizon_staff، ألاء كاملة. kind=customer: عميل ERPNext
+// (طابق إيميله عميلًا على النظام)، يرى بياناته هو فقط ويسجّل بلاغات.
+export const alaaTgUsers = sqliteTable("alaa_tg_users", {
+  chatId: text("chat_id").primaryKey(),
+  email: text("email"),
+  kind: text("kind", { enum: ["staff", "customer"] }),
+  erpCustomer: text("erp_customer"),
+  displayName: text("display_name"),
+  otpHash: text("otp_hash"),
+  otpExpiresAt: text("otp_expires_at"),
+  verifiedAt: text("verified_at"),
+  mode: text("mode", { enum: ["chat", "report"] }).notNull().default("chat"),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
