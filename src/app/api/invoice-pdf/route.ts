@@ -60,9 +60,19 @@ export async function GET(req: NextRequest) {
     // افتراضي معرَّف يرجع "Standard" كما كان.
     const format = (await resolveDefaultPrintFormat(cfg.url, auth, doctype)) ?? "Standard";
     const qs = new URLSearchParams({ doctype, name, format, no_letterhead: "0" });
-    const res = await fetch(`${cfg.url}/api/method/frappe.utils.print_format.download_pdf?${qs}`, {
+    // مولّد كروم (v16) يرندر النماذج المصمَّمة للمتصفح كما هي — wkhtmltopdf
+    // كان يقصّ الأطراف ويُسقط خلفية الترويسة (مقيس ببروتوتايبات فعلية).
+    // نسخة عميل أقدم لا تعرف الباراميتر ⇐ إعادة محاولة بدونه، لا فشل.
+    qs.set("pdf_generator", "chrome");
+    let res = await fetch(`${cfg.url}/api/method/frappe.utils.print_format.download_pdf?${qs}`, {
       headers: { [auth.header]: auth.value },
     });
+    if (!res.ok) {
+      qs.delete("pdf_generator");
+      res = await fetch(`${cfg.url}/api/method/frappe.utils.print_format.download_pdf?${qs}`, {
+        headers: { [auth.header]: auth.value },
+      });
+    }
     if (!res.ok) {
       return NextResponse.json({ error: `تعذّر جلب الملف من ERPNext (${res.status})` }, { status: 502 });
     }
