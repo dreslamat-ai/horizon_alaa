@@ -2,6 +2,34 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireStaffSession } from "@/lib/auth/session";
 import { getErpConfigForCustomer, getErpAuthHeader } from "@/lib/erp/erpConnection";
 
+/**
+ * النموذج الافتراضي للدوكتايب من Property Setter عند العميل — نفس المصدر
+ * الذي تقرأ منه شاشة الطباعة في ERPNext. فشل الاستعلام لا يمنع التحميل
+ * (يرجع null فيُستخدم Standard) — نموذج غير مثالي أفضل من لا ملف.
+ */
+async function resolveDefaultPrintFormat(
+  baseUrl: string,
+  auth: { header: string; value: string },
+  doctype: string
+): Promise<string | null> {
+  try {
+    const filters = encodeURIComponent(JSON.stringify([
+      ["doc_type", "=", doctype],
+      ["property", "=", "default_print_format"],
+    ]));
+    const res = await fetch(
+      `${baseUrl}/api/resource/Property%20Setter?filters=${filters}&fields=${encodeURIComponent('["value"]')}&limit_page_length=1`,
+      { headers: { [auth.header]: auth.value } }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { data?: Array<{ value?: string }> };
+    const value = data?.data?.[0]?.value?.trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
 // بروكسي تحميل PDF — لماذا لا رابط مباشر لـERPNext في رد النموذج: الموظف
 // (مستخدم ألاء) لا حساب له على نظام العميل غالبًا، فرابط مباشر يوصله
 // لصفحة تسجيل دخول ERPNext لا يملك بياناتها. ألاء نفسها (بحساب العميل
@@ -26,7 +54,12 @@ export async function GET(req: NextRequest) {
   try {
     const cfg = await getErpConfigForCustomer(customerId);
     const auth = await getErpAuthHeader(cfg);
-    const qs = new URLSearchParams({ doctype, name, format: "Standard", no_letterhead: "0" });
+    // نموذج الطباعة الافتراضي يُقرأ من نظام العميل نفسه (Property Setter
+    // على الدوكتايب) لا يُثبَّت هنا — "Standard" الثابتة كانت بتتجاهل
+    // النموذج المعتمد فعليًا عند العميل (بلاغ حي من المالك). لو ما فيش
+    // افتراضي معرَّف يرجع "Standard" كما كان.
+    const format = (await resolveDefaultPrintFormat(cfg.url, auth, doctype)) ?? "Standard";
+    const qs = new URLSearchParams({ doctype, name, format, no_letterhead: "0" });
     const res = await fetch(`${cfg.url}/api/method/frappe.utils.print_format.download_pdf?${qs}`, {
       headers: { [auth.header]: auth.value },
     });
