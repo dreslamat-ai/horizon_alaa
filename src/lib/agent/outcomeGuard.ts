@@ -62,16 +62,34 @@ export function verifyReply(reply: string, outcomes: ToolOutcome[]): Verdict {
   if (!claimsSuccess(reply)) return { ok: true };
 
   const mutations = outcomes.filter(o => isMutating(o.name));
-  const succeeded = mutations.filter(o => o.ok);
-  const failed = mutations.filter(o => !o.ok);
 
-  if (succeeded.length > 0 && failed.length === 0) return { ok: true };
+  // الحكم بآخر نتيجة لكل أداة: فشل ثم نجاح لنفس الأداة = نجاح (نمط أعد
+  // المحاولة). العطل القديم وسم النوبة كلها فاشلة وقال "لم يتغير شيء"
+  // بينما المستند اتسجل فعلًا — كذب عكسي يدفع المستخدم يكرر فيتكرر المستند
+  // (وقع مرتين حقيقيتين: فاتورة 00011 وعرض سعر SAL-QTN-2026-00001).
+  const lastByTool = new Map<string, ToolOutcome>();
+  for (const m of mutations) lastByTool.set(m.name, m);
+  const finals = [...lastByTool.values()];
+  const finalOk = finals.filter(o => o.ok);
+  const finalFailed = finals.filter(o => !o.ok);
 
-  if (failed.length > 0) {
-    const lines = failed.map(f => `• ${labelFor(f.name)}: ${briefError(f.error)}`).join("\n");
+  if (finalOk.length > 0 && finalFailed.length === 0) return { ok: true };
+
+  if (finalOk.length > 0 && finalFailed.length > 0) {
+    const okLines = finalOk.map(f => `• ${labelFor(f.name)}: تم`).join("\n");
+    const badLines = finalFailed.map(f => `• ${labelFor(f.name)}: ${briefError(f.error)}`).join("\n");
     return {
       ok: false,
-      reason: `ادّعاء نجاح مع فشل ${failed.length} أداة`,
+      reason: `نجاح جزئي: ${finalOk.length} تمت و${finalFailed.length} فشلت`,
+      replacement: `⚠️ **تم جزء من طلبك ولم يكتمل الباقي.**\n\nما تم فعلاً:\n${okLines}\n\nما لم ينجح:\n${badLines}\n\nأخبرني إن أردت أن أكمل الباقي أو أعالج السبب.`,
+    };
+  }
+
+  if (finalFailed.length > 0) {
+    const lines = finalFailed.map(f => `• ${labelFor(f.name)}: ${briefError(f.error)}`).join("\n");
+    return {
+      ok: false,
+      reason: `ادّعاء نجاح مع فشل ${finalFailed.length} أداة`,
       replacement: `⚠️ **لم يكتمل التنفيذ.**\n\nحاولتُ تنفيذ طلبك ولم ينجح:\n${lines}\n\nلم يتغيّر شيء في نظامك. أخبرني إن أردت أن أعالج السبب أو أجرّب طريقة أخرى.`,
     };
   }
