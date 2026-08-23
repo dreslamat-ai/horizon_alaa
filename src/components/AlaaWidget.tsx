@@ -16,7 +16,17 @@ import { API_BASE } from "@/lib/apiPath";
 type Msg = { role: "user" | "assistant" | "error"; content: string };
 type Customer = { id: number; companyNameAr: string; subscriptionStatus: string; creditsBalance: number; erpUrl?: string };
 
-const STARTERS = ["اعرضلي أسماء الموظفين", "دور على عميل باسمه", "قائمة الأصناف"];
+// تغطي كل قدرات ألاء: بيانات حية · تحميل PDF · فتح شاشات · شرح خطوات
+const STARTERS = [
+  "اعرض آخر 5 فواتير مبيعات",
+  "قائمة العملاء",
+  "حمّل PDF آخر فاتورة",
+  "افتح شاشة فواتير المبيعات",
+  "افتح فاتورة جديدة",
+  "إزاي أضيف عميل جديد؟",
+  "إزاي أعمل أمر تشغيل؟",
+  "قائمة الأصناف",
+];
 
 /**
  * تنسيق ماركداون محدود بعد التهريب — منقولة بتصرّف من fmt() في
