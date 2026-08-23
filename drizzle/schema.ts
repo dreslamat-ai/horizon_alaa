@@ -19,6 +19,8 @@ export const horizonStaff = sqliteTable("horizon_staff", {
 
 export const alaaPlans = sqliteTable("alaa_plans", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  // زي mode في باقات سارة: الكتابة قدرة باقة لا قدرة نموذج — الحجب هيكلي بفلترة الأدوات
+  allowWrites: integer("allow_writes", { mode: "boolean" }).notNull().default(false),
   nameAr: text("name_ar").notNull(),
   monthlyPriceSar: real("monthly_price_sar").notNull().default(0),
   monthlyCreditsAllowance: integer("monthly_credits_allowance").notNull(),

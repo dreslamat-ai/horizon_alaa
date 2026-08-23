@@ -102,4 +102,109 @@ export const TOOLS = [
       },
     },
   },
+  // ─── أدوات التسجيل — منقولة حرفيًا من سارة (بطلب المالك، ٢٤ أغسطس) ───
+  {
+    type: "function" as const,
+    function: {
+      name: "create_customer",
+      description: "إنشاء عميل جديد. لا تستخدمها أبداً قبل البحث بـ get_customers والتأكد من عدم وجود العميل — الأداة نفسها ترفض الإنشاء إذا وُجد عميل مطابق أو مشابه وتعيد قائمة المرشحين",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: { type: "string", description: "اسم العميل" },
+          customer_type: { type: "string", enum: ["Company", "Individual"], description: "نوع العميل: شركة أو فرد (الافتراضي Company)" },
+          mobile_no: { type: "string", description: "رقم الجوال (اختياري)" },
+          email_id: { type: "string", description: "البريد الإلكتروني (اختياري)" },
+          tax_id: { type: "string", description: "الرقم الضريبي للعميل (15 رقماً يبدأ وينتهي بـ 3 وفق نظام ضريبة القيمة المضافة السعودي) — مطلوب للعملاء من نوع شركة/منشأة، اسأل المستخدم عنه عند إنشاء عميل شركة" },
+        },
+        required: ["customer_name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_item",
+      description: "إنشاء صنف/خدمة جديدة. لا تستخدمها أبداً قبل البحث بـ get_items والتأكد من عدم وجود الصنف — الأداة نفسها ترفض الإنشاء إذا وُجد صنف مطابق أو مشابه وتعيد قائمة المرشحين",
+      parameters: {
+        type: "object",
+        properties: {
+          item_name: { type: "string", description: "اسم الصنف أو الخدمة" },
+          item_code: { type: "string", description: "كود الصنف (اختياري — يُستخدم الاسم إذا لم يُحدد)" },
+          standard_rate: { type: "number", description: "سعر البيع الافتراضي (اختياري)" },
+          is_service: { type: "boolean", description: "true إذا كان خدمة (غير مخزنية)، false إذا كان منتجاً مخزنياً. الافتراضي true" },
+          item_group: { type: "string", description: "مجموعة الصنف (اختياري — الافتراضي: All Item Groups)" },
+        },
+        required: ["item_name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_invoice",
+      description: "إنشاء فاتورة مبيعات جديدة في ERPNext كمسودة. تُحتسب ضريبة القيمة المضافة 15% تلقائياً وفق النظام السعودي ما لم يحدد المستخدم خلاف ذلك",
+      parameters: {
+        type: "object",
+        properties: {
+          customer: { type: "string", description: "اسم العميل (name field في ERPNext)" },
+          items: {
+            type: "array",
+            description: "قائمة الأصناف",
+            items: {
+              type: "object",
+              properties: {
+                item_code: { type: "string", description: "كود الصنف" },
+                qty: { type: "number", description: "الكمية" },
+                rate: { type: "number", description: "السعر (قبل الضريبة)" },
+              },
+              required: ["item_code", "qty", "rate"],
+              additionalProperties: false,
+            },
+          },
+          due_date: { type: "string", description: "تاريخ الاستحقاق بصيغة YYYY-MM-DD (اختياري)" },
+          apply_vat: { type: "boolean", description: "احتساب ضريبة القيمة المضافة 15% (الافتراضي true). اجعلها false فقط إذا طلب المستخدم صراحةً فاتورة بدون ضريبة أو معفاة" },
+        },
+        required: ["customer", "items"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_payment_entry",
+      description: "تسجيل دفعة: مستلمة من عميل (Receive) أو مدفوعة لمورد (Pay). يمكن ربطها بفاتورة محددة لسدادها. تُنشأ كمسودة ثم تُعتمد بـ submit_document",
+      parameters: {
+        type: "object",
+        properties: {
+          payment_type: { type: "string", enum: ["Receive", "Pay"], description: "Receive = قبض من عميل، Pay = صرف لمورد" },
+          party: { type: "string", description: "اسم العميل (لـ Receive) أو المورد (لـ Pay)" },
+          amount: { type: "number", description: "مبلغ الدفعة" },
+          reference_invoice: { type: "string", description: "رقم الفاتورة المراد سدادها مثل ACC-SINV-2026-00001 (اختياري — لربط الدفعة بالفاتورة)" },
+          mode_of_payment: { type: "string", description: "طريقة الدفع مثل Cash أو Bank (اختياري)" },
+        },
+        required: ["payment_type", "party", "amount"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "submit_document",
+      description: "اعتماد (Submit) أي مستند لتسجيله رسمياً في الحسابات: فاتورة مبيعات، فاتورة مشتريات، دفعة، أو قيد يومية",
+      parameters: {
+        type: "object",
+        properties: {
+          doctype: { type: "string", description: "اسم DocType بالإنجليزية كما في ERPNext — أي نوع مستند: Sales Invoice, Purchase Invoice, Payment Entry, Journal Entry, Customer, Supplier, Item, Delivery Note, Sales Order, Purchase Order, Purchase Receipt, Stock Entry, Quotation, Lead, Address, Contact, Warehouse, Cost Center — أو أي DocType آخر في النظام" },
+          document_name: { type: "string", description: "رقم المستند مثل ACC-SINV-2026-00001 أو ACC-PAY-2026-00001" },
+        },
+        required: ["doctype", "document_name"],
+        additionalProperties: false,
+      },
+    },
+  },
 ] as const;

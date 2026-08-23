@@ -12,7 +12,7 @@ import { db, schema } from "@/lib/db";
 import { runWithCustomerConfig } from "@/lib/erp/erpClient";
 import { getErpConfigForCustomer, getErpAuthHeader } from "@/lib/erp/erpConnection";
 import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
-import { modeRules, identityLine } from "@/lib/agent/agentModes";
+import { modeRules, identityLine, toolsForPlan } from "@/lib/agent/agentModes";
 import { TOOLS } from "@/lib/agent/toolDefinitions";
 import { executeTool } from "@/lib/agent/executeTool";
 import { invokeAgentLLM } from "@/lib/llm/llmProvider";
@@ -150,13 +150,19 @@ async function alaaAnswer(userText: string, who: { kind: "staff" | "customer"; n
   const access = await assertAlaaAccessAllowed(ALAA_CUSTOMER_ID);
   if (!access.ok) return "الخدمة موقوفة مؤقتًا — تواصل مع إدارة Horizon.";
 
+  let allowWrites = false;
+  try {
+    const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, access.customer.planId)).limit(1);
+    allowWrites = plan?.allowWrites ?? false;
+  } catch { allowWrites = false; }
+
   const isCustomer = who.kind === "customer";
   const system = isCustomer
     ? `${identityLine}\n\nأنتِ الآن تخدمين العميل «${who.name}» عبر تليجرام. مسموح لكِ فقط بياناته هو (فواتيره) عبر أدواتك — أي طلب لبيانات غيره أو بيانات عامة عن النظام اعتذري عنه بلطف. الردود مختصرة ومناسبة لرسائل تليجرام (بلا جداول ماركداون).`
-    : `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **Horizon** (عبر تليجرام — الردود مختصرة وبلا جداول ماركداون، نقاط قصيرة بدلها).\n\n${modeRules()}`;
+    : `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **Horizon** (عبر تليجرام — الردود مختصرة وبلا جداول ماركداون، نقاط قصيرة بدلها).\n\n${modeRules(allowWrites)}`;
 
   const messages: Msg[] = [{ role: "system", content: system }, { role: "user", content: userText }];
-  const tools = isCustomer ? CUSTOMER_TOOLS : TOOLS;
+  const tools = isCustomer ? CUSTOMER_TOOLS : toolsForPlan([...TOOLS], allowWrites);
 
   return runWithCustomerConfig(ALAA_CUSTOMER_ID, async () => {
     for (let i = 0; i < 5; i++) {

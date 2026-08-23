@@ -67,3 +67,22 @@ export async function erpPOST(path: string, body: Record<string, unknown>): Prom
   }
   return res.json();
 }
+
+export async function erpPUT(path: string, body: Record<string, unknown>): Promise<unknown> {
+  const url = erpBaseUrl();
+  const headers = await authHeaders();
+  const res = await fetch(`${url}${path}`, {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json", "X-Frappe-CSRF-Token": "fetch" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`ERPNext PUT error ${res.status}: ${errText.slice(0, ERROR_KEEP)}`);
+  }
+  return res.json();
+}
+
+export function erpApiBase(): string {
+  return currentErpConfig().url.replace(/\/+$/, "");
+}

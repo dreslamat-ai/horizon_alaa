@@ -4,10 +4,12 @@
 // يُستدعى أولًا (قبل أي استدعاء لنموذج اللغة)، وrunWithCustomerConfig
 // يبني الاتصال من alaa_customers بدل env ثابت.
 import { NextRequest, NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { requireStaffSession } from "@/lib/auth/session";
 import { runWithCustomerConfig } from "@/lib/erp/erpClient";
 import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
-import { modeRules, identityLine } from "@/lib/agent/agentModes";
+import { modeRules, identityLine, toolsForPlan } from "@/lib/agent/agentModes";
 import { TOOLS } from "@/lib/agent/toolDefinitions";
 import { narrowToolsByErpPermissions } from "@/lib/agent/toolPermissions";
 import { executeTool } from "@/lib/agent/executeTool";
@@ -35,7 +37,15 @@ export async function POST(req: NextRequest) {
   }
   const customer = access.customer;
 
-  const systemPrompt = `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${customer.companyNameAr}**.\n\n${modeRules()}`;
+  // علم الكتابة من الباقة — نفس نمط سارة: القدرة قدرة اشتراك، والفشل في
+  // قراءتها يسقط للأضيق (قراءة فقط) لا للأوسع، لأن الكتابة أخطر من حرمانها.
+  let allowWrites = false;
+  try {
+    const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, customer.planId)).limit(1);
+    allowWrites = plan?.allowWrites ?? false;
+  } catch { allowWrites = false; }
+
+  const systemPrompt = `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${customer.companyNameAr}**.\n\n${modeRules(allowWrites)}`;
   const llmMessages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
     ...body.messages,
@@ -48,7 +58,7 @@ export async function POST(req: NextRequest) {
     return await runWithCustomerConfig(customer.id, async () => {
       // مرة واحدة قبل الحلقة — طبقة إرشادية (لا حاجز أمني)، تمنع النموذج
       // من "وعد" الموظف بأداة سيرفضها ERPNext لاحقًا بخطأ صلاحيات.
-      const availableTools = await narrowToolsByErpPermissions([...TOOLS]);
+      const availableTools = await narrowToolsByErpPermissions(toolsForPlan([...TOOLS], allowWrites));
       for (let iter = 0; iter < MAX_ITER; iter++) {
         const response = await invokeAgentLLM({
           messages: llmMessages,
