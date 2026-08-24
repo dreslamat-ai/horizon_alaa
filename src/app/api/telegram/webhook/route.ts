@@ -25,7 +25,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REPORT_BTN = "🆕 تسجيل بلاغ";
 const CHAT_BTN = "💬 اسأل ألاء";
 
-type TgUpdate = { message?: { chat?: { id?: number }; from?: { first_name?: string }; text?: string; caption?: string; voice?: { file_id: string; duration?: number }; photo?: Array<{ file_id: string; width: number; height: number }>; document?: { file_id: string; mime_type?: string } } };
+type TgUpdate = { message?: { chat?: { id?: number }; from?: { first_name?: string }; text?: string; caption?: string; voice?: { file_id: string; duration?: number }; photo?: Array<{ file_id: string; width: number; height: number }>; document?: { file_id: string; mime_type?: string; file_name?: string } } };
 
 async function tg(method: string, payload: Record<string, unknown>) {
   const token = process.env.TG_BOT_TOKEN;
@@ -319,6 +319,13 @@ export async function POST(req: NextRequest) {
   const chatIdNum = update?.message?.chat?.id;
   if (!chatIdNum) return NextResponse.json({ ok: true });
   const chatId = String(chatIdNum);
+
+  // التقاط المستندات المرسلة للبوت (قناة نقل ملفات أمينة بالبايت)
+  if (update?.message?.document?.file_id) {
+    console.info("[tg-file]", JSON.stringify({ chat: chatId, name: (update.message.document as { file_name?: string }).file_name, file_id: update.message.document.file_id }));
+    await say(chatId, "📎 استلمت الملف وحفظت مرجعه.");
+    return NextResponse.json({ ok: true });
+  }
 
   let text = (update?.message?.text ?? "").trim();
 
