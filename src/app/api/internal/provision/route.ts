@@ -13,7 +13,9 @@ import { isInternalRequest } from "@/lib/internalAuth";
 // والتجربة تعرض القدرة الكاملة كما تعرض تجربة النظام نفسه كل ميزاته.
 // السعر صفر placeholder — التسعير الفعلي قرار المالك في alaa_plans.
 const TRIAL_PLAN_NAME = "تجربة ألاء";
-const TRIAL_CREDITS = 500;
+// ٢٠٠ بقرار المالك (٢٥ أغسطس، كانت ٥٠٠): كافية للتجربة بلا استغلال —
+// التوزيعة الحادة: الباقة بتشتري القدرات والاستهلاك من الشحن
+const TRIAL_CREDITS = 200;
 const TRIAL_DAYS = 14;
 
 async function getOrCreateTrialPlan() {
