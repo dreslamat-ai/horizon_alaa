@@ -259,7 +259,8 @@ async function alaaAnswer(userText: string, who: { kind: "staff" | "customer"; n
     : `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **Horizon** (عبر تليجرام — الردود مختصرة وبلا جداول ماركداون، نقاط قصيرة بدلها).\n\n${modeRules(allowWrites)}`;
 
   const messages: Msg[] = [{ role: "system", content: system }, { role: "user", content: userText }];
-  const tools = isCustomer ? CUSTOMER_TOOLS : toolsForPlan([...TOOLS], allowWrites);
+  // البوت لموظفي Horizon على نظامهم — فريق الأقسام متاح دائمًا هنا
+  const tools = isCustomer ? CUSTOMER_TOOLS : toolsForPlan([...TOOLS], { allowWrites, allowDepartments: true });
 
   return runWithCustomerConfig(ALAA_CUSTOMER_ID, async () => {
     for (let i = 0; i < 5; i++) {

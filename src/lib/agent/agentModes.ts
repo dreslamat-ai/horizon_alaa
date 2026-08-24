@@ -145,14 +145,26 @@ export function modeRules(allowWrites = false): string {
  */
 export const PLANS_ENFORCED = false;
 
+// 🔴 القائمة لازم تفضل كاملة مع كل أداة كتابة جديدة: كانت ٦ أدوات من أول
+// نسخة لوضع الكتابة، والتوسعة (موردون/قيود/تعديل/إلغاء/حذف/نماذج/دورات/
+// حقول) ما حدّثتهاش — فباقة قراءة كانت هتسيب ٩ أدوات كتابة مكشوفة.
+// اتمسكت قبل أول باقة قراءة حقيقية (٢٥ أغسطس).
 export const WRITE_TOOLS = new Set([
   "create_customer", "create_item", "create_invoice", "create_payment_entry", "submit_document",
-  "create_document",
+  "create_document", "create_supplier", "create_purchase_invoice", "create_journal_entry",
+  "update_document", "cancel_document", "delete_document",
+  "create_custom_field", "create_print_format", "create_workflow",
 ]);
 
-export function toolsForPlan<T extends { function: { name: string } }>(tools: T[], allowWrites: boolean): T[] {
-  if (allowWrites) return tools;
-  return tools.filter(t => !WRITE_TOOLS.has(t.function.name));
+export type PlanFeatures = { allowWrites: boolean; allowDepartments: boolean };
+
+export function toolsForPlan<T extends { function: { name: string } }>(tools: T[], features: PlanFeatures): T[] {
+  return tools.filter(t => {
+    if (!features.allowWrites && WRITE_TOOLS.has(t.function.name)) return false;
+    // فريق الأقسام قدرة باقة "الفريق الكامل" — الحجب هيكلي بفلترة القائمة
+    if (!features.allowDepartments && t.function.name === "department_review") return false;
+    return true;
+  });
 }
 
 /** قواعد التسجيل — تُحقن فقط حين تسمح الباقة بالكتابة */

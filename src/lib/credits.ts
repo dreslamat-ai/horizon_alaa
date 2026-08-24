@@ -15,13 +15,54 @@ export type AccessResult =
   | { ok: false; reason: AccessDenialReason; message: string };
 
 /**
+ * التجديد الشهري للنقاط — نظير ensureCreditsCycle عند سارة، كسول: يُفحص
+ * مع كل وصول بدل مهمة مجدولة (لا cron يُنسى تشغيله بعد نقل سيرفر).
+ *
+ * - للاشتراكات **النشطة فقط**: التجربة رصيد واحد لا يتجدد (١٤ يوم أقل
+ *   من شهر أصلًا)، والموقوف/المنتهي لا يُهدى نقاطًا.
+ * - التجديد **تكملة للمخصص لا تصفير**: لو الرصيد أقل من مخصص الباقة
+ *   يرتفع إليه، ولو أعلى (نقاط مشحونة مدفوعة) لا يُمسّ — تصفيرٌ للأعلى
+ *   كان سيصادر نقاطًا دفع العميل ثمنها.
+ */
+async function ensureCreditsCycle(
+  customer: typeof schema.alaaCustomers.$inferSelect,
+): Promise<typeof schema.alaaCustomers.$inferSelect> {
+  if (customer.subscriptionStatus !== "active") return customer;
+  const resetAt = new Date(customer.creditsResetAt);
+  if (Number.isNaN(resetAt.getTime())) return customer; // قيمة معطوبة — لا تجديد أعمى
+  const nextCycle = new Date(resetAt);
+  nextCycle.setMonth(nextCycle.getMonth() + 1);
+  if (nextCycle.getTime() > Date.now()) return customer;
+
+  const newBalance = Math.max(customer.creditsBalance, customer.monthlyCreditsAllowance);
+  const [updated] = await db.update(schema.alaaCustomers)
+    .set({
+      creditsBalance: newBalance,
+      creditsResetAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(schema.alaaCustomers.id, customer.id))
+    .returning();
+  if (newBalance !== customer.creditsBalance) {
+    await logCreditTransaction({
+      alaaCustomerId: customer.id, type: "monthly_refill",
+      amount: newBalance - customer.creditsBalance, balanceAfter: newBalance,
+      note: "تجديد شهري لمخصص الباقة",
+    });
+  }
+  return updated;
+}
+
+/**
  * الفحص الحاسم — يُستدعى أول شيء قبل أي استدعاء لنموذج اللغة.
  * الثلاثة معًا: الحالة، تاريخ الانتهاء، والرصيد — لا أحدها بديل عن الآخر.
  */
 export async function assertAlaaAccessAllowed(customerId: number): Promise<AccessResult> {
   const rows = await db.select().from(schema.alaaCustomers).where(eq(schema.alaaCustomers.id, customerId)).limit(1);
-  const customer = rows[0];
+  let customer = rows[0];
   if (!customer) return { ok: false, reason: "not_found", message: "لا يوجد عميل بهذا المعرّف" };
+  // قبل فحص الرصيد — مشترك نشط وصل صفرًا وحان شهره الجديد يتجدد ويمرّ
+  customer = await ensureCreditsCycle(customer);
 
   if (customer.subscriptionStatus === "suspended" || customer.subscriptionStatus === "cancelled") {
     return { ok: false, reason: "subscription_suspended", message: `اشتراك "${customer.companyNameAr}" موقوف — تواصل مع الإدارة` };

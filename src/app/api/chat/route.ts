@@ -9,7 +9,7 @@ import { db, schema } from "@/lib/db";
 import { requireAnySession } from "@/lib/auth/session";
 import { runWithCustomerConfig } from "@/lib/erp/erpClient";
 import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
-import { modeRules, identityLine, toolsForPlan, PLANS_ENFORCED } from "@/lib/agent/agentModes";
+import { modeRules, identityLine, toolsForPlan, PLANS_ENFORCED, type PlanFeatures } from "@/lib/agent/agentModes";
 import { TOOLS } from "@/lib/agent/toolDefinitions";
 import { narrowToolsByErpPermissions } from "@/lib/agent/toolPermissions";
 import { executeTool } from "@/lib/agent/executeTool";
@@ -36,24 +36,28 @@ export async function POST(req: NextRequest) {
   const access = await assertAlaaAccessAllowed(customerId);
   if (!access.ok) {
     const status = access.reason === "not_found" ? 404 : access.reason === "credits_exhausted" ? 402 : 403;
-    const message = access.reason === "credits_exhausted" && session.kind === "customer"
+    const message = session.kind === "customer" && access.reason === "credits_exhausted"
       ? "رصيدك من نقاط ألاء خلص — اشحن من صفحة «اشتراكي والفواتير» في نظامك وهرجع أرد عليك فورًا 🌟"
-      : access.message;
+      : session.kind === "customer" && access.reason === "subscription_expired"
+        ? "اشتراك ألاء انتهى — جدّده من صفحة «اشتراكي والفواتير» في نظامك وهرجع معاك على طول 🌟"
+        : access.message;
     return NextResponse.json({ error: message, reason: access.reason }, { status });
   }
   const customer = access.customer;
 
-  // علم الكتابة من الباقة — نفس نمط سارة: القدرة قدرة اشتراك، والفشل في
-  // قراءتها يسقط للأضيق (قراءة فقط) لا للأوسع، لأن الكتابة أخطر من حرمانها.
+  // قدرات الباقة — نفس نمط سارة: القدرة قدرة اشتراك، والفشل في قراءتها
+  // يسقط للأضيق (قراءة فقط، بلا فريق أقسام) لا للأوسع.
   // جلسة المستأجر تُنفَّذ عليها الباقة دائمًا (بغضّ النظر عن PLANS_ENFORCED
   // العام) — العلم العام يخصّ موظفي Horizon وحدهم بقرار المالك ٢٤ أغسطس.
   const planEnforced = PLANS_ENFORCED || session.kind === "customer";
-  let allowWrites = true;
-  if (planEnforced) try {
-    const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, customer.planId)).limit(1);
-    allowWrites = plan?.allowWrites ?? false;
-  } catch { allowWrites = false; }
-  if (!planEnforced) allowWrites = true;
+  let features: PlanFeatures = { allowWrites: true, allowDepartments: true };
+  if (planEnforced) {
+    try {
+      const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, customer.planId)).limit(1);
+      features = { allowWrites: plan?.allowWrites ?? false, allowDepartments: plan?.allowDepartments ?? false };
+    } catch { features = { allowWrites: false, allowDepartments: false }; }
+  }
+  const allowWrites = features.allowWrites;
 
   const systemPrompt = `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${customer.companyNameAr}**.\n\n${modeRules(allowWrites)}`;
   const llmMessages: ChatMessage[] = [
@@ -68,7 +72,11 @@ export async function POST(req: NextRequest) {
     return await runWithCustomerConfig(customer.id, async () => {
       // مرة واحدة قبل الحلقة — طبقة إرشادية (لا حاجز أمني)، تمنع النموذج
       // من "وعد" الموظف بأداة سيرفضها ERPNext لاحقًا بخطأ صلاحيات.
-      const availableTools = await narrowToolsByErpPermissions(toolsForPlan([...TOOLS], allowWrites));
+      const availableTools = await narrowToolsByErpPermissions(toolsForPlan([...TOOLS], features));
+      // بوابة وقت التنفيذ لا الفلترة وحدها: الموديل ممكن ينادي اسم أداة
+      // ماوصلتلوش في القائمة (هلوسة أو حقن في المحادثة) — الفلترة بتحدد
+      // اللي يتعرض عليه، ودي بتضمن إن اللي برّه القائمة مايتنفذش أصلًا.
+      const availableToolNames = new Set<string>(availableTools.map(t => t.function.name));
       for (let iter = 0; iter < MAX_ITER; iter++) {
         const response = await invokeAgentLLM({
           messages: llmMessages,
@@ -99,6 +107,9 @@ export async function POST(req: NextRequest) {
           let toolResult: string;
           let display = "";
           try {
+            if (!availableToolNames.has(tc.function.name)) {
+              throw new Error(`الأداة "${tc.function.name}" غير متاحة في باقتك الحالية`);
+            }
             const args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
             const out = await executeTool(tc.function.name, args);
             toolResult = JSON.stringify(out.result);

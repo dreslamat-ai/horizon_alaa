@@ -21,6 +21,13 @@ export const alaaPlans = sqliteTable("alaa_plans", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   // زي mode في باقات سارة: الكتابة قدرة باقة لا قدرة نموذج — الحجب هيكلي بفلترة الأدوات
   allowWrites: integer("allow_writes", { mode: "boolean" }).notNull().default(false),
+  // أعلام تصور الباقات المعتمد (٢٥ أغسطس): كل باقة أعلى بتفتح أعضاء أكتر
+  // من فريق ألاء. departments = فريق الأقسام الأربعة (أداة department_review).
+  // telegram/dailyDigest مخزّنان من الآن، والإنفاذ الفعلي لما البوت والملخص
+  // يتربطوا بالمستأجرين (حاليًا مربوطان بعميل واحد ثابت في env).
+  allowDepartments: integer("allow_departments", { mode: "boolean" }).notNull().default(false),
+  allowTelegram: integer("allow_telegram", { mode: "boolean" }).notNull().default(false),
+  allowDailyDigest: integer("allow_daily_digest", { mode: "boolean" }).notNull().default(false),
   nameAr: text("name_ar").notNull(),
   monthlyPriceSar: real("monthly_price_sar").notNull().default(0),
   monthlyCreditsAllowance: integer("monthly_credits_allowance").notNull(),
