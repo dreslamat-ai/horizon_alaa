@@ -16,6 +16,9 @@ export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (
     PUBLIC_PATHS.some(p => pathname === p) ||
+    // خادم-لخادم بمفتاح x-internal-key يُفحص داخل المسار نفسه (internalAuth)
+    // — لا جلسة متصفح له أصلًا، فحارس الجلسة هنا كان سيقفله دائمًا.
+    pathname.startsWith("/api/internal/") ||
     pathname.startsWith("/_next") ||
     STATIC_FILE_RE.test(pathname)
   ) {
