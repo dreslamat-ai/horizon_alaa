@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { requireStaffSession } from "@/lib/auth/session";
+import { requireAnySession } from "@/lib/auth/session";
 import { runWithCustomerConfig } from "@/lib/erp/erpClient";
 import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
 import { modeRules, identityLine, toolsForPlan, PLANS_ENFORCED } from "@/lib/agent/agentModes";
@@ -22,29 +22,38 @@ type ChatMessage = { role: string; content: string | null; tool_calls?: unknown[
 const MAX_ITER = 8;
 
 export async function POST(req: NextRequest) {
-  const staff = await requireStaffSession(req);
-  if (!staff) return NextResponse.json({ error: "لازم تسجّل دخولك أولاً" }, { status: 401 });
+  const session = await requireAnySession(req);
+  if (!session) return NextResponse.json({ error: "لازم تسجّل دخولك أولاً" }, { status: 401 });
 
   const body = (await req.json().catch(() => null)) as { customerId?: number; messages?: ChatMessage[] } | null;
-  if (!body?.customerId) return NextResponse.json({ error: "لازم تختار عميل أولاً" }, { status: 400 });
+  // جلسة المستأجر مقفولة بنيويًا على عميلها — ما يبعته المتصفح يُتجاهل
+  // تمامًا، فتزوير customerId في الطلب لا يفتح بيانات عميل آخر أصلاً.
+  const customerId = session.kind === "customer" ? session.customerId : body?.customerId;
+  if (!customerId) return NextResponse.json({ error: "لازم تختار عميل أولاً" }, { status: 400 });
   if (!body?.messages?.length) return NextResponse.json({ error: "الرسائل مطلوبة" }, { status: 400 });
 
   // ─── الفحص الحاسم: قبل أي استدعاء لنموذج اللغة، لا بعده ───────────────────
-  const access = await assertAlaaAccessAllowed(body.customerId);
+  const access = await assertAlaaAccessAllowed(customerId);
   if (!access.ok) {
     const status = access.reason === "not_found" ? 404 : access.reason === "credits_exhausted" ? 402 : 403;
-    return NextResponse.json({ error: access.message, reason: access.reason }, { status });
+    const message = access.reason === "credits_exhausted" && session.kind === "customer"
+      ? "رصيدك من نقاط ألاء خلص — اشحن من صفحة «اشتراكي والفواتير» في نظامك وهرجع أرد عليك فورًا 🌟"
+      : access.message;
+    return NextResponse.json({ error: message, reason: access.reason }, { status });
   }
   const customer = access.customer;
 
   // علم الكتابة من الباقة — نفس نمط سارة: القدرة قدرة اشتراك، والفشل في
   // قراءتها يسقط للأضيق (قراءة فقط) لا للأوسع، لأن الكتابة أخطر من حرمانها.
-  let allowWrites = true; // الباقات نايمة — PLANS_ENFORCED=false بقرار المالك
-  if (PLANS_ENFORCED) try {
+  // جلسة المستأجر تُنفَّذ عليها الباقة دائمًا (بغضّ النظر عن PLANS_ENFORCED
+  // العام) — العلم العام يخصّ موظفي Horizon وحدهم بقرار المالك ٢٤ أغسطس.
+  const planEnforced = PLANS_ENFORCED || session.kind === "customer";
+  let allowWrites = true;
+  if (planEnforced) try {
     const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, customer.planId)).limit(1);
     allowWrites = plan?.allowWrites ?? false;
   } catch { allowWrites = false; }
-  if (!PLANS_ENFORCED) allowWrites = true;
+  if (!planEnforced) allowWrites = true;
 
   const systemPrompt = `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${customer.companyNameAr}**.\n\n${modeRules(allowWrites)}`;
   const llmMessages: ChatMessage[] = [
@@ -79,7 +88,7 @@ export async function POST(req: NextRequest) {
           let replyText = verdict.ok ? rawText : verdict.replacement;
           if (!isUsableReply(replyText)) replyText = UNUSABLE_REPLY_FALLBACK;
           // الخصم بعد نجاح الرد فقط — لا قبل، ولا عند فشل النموذج
-          await deductCredits(customer.id, MESSAGE_COST, staff.id);
+          await deductCredits(customer.id, MESSAGE_COST, session.kind === "staff" ? session.id : undefined);
           return NextResponse.json({ reply: replyText, toolResults, creditsBalance: customer.creditsBalance - MESSAGE_COST });
         }
 

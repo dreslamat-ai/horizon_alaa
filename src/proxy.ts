@@ -3,7 +3,7 @@
 // (والـAPI الموازي) محمي إضافيًا بدور admin — موظف support يترفض فعليًا
 // هنا (تحويل/٤٠٣)، لا بإخفاء الرابط في الواجهة فقط.
 import { NextResponse, type NextRequest } from "next/server";
-import { requireStaffSession } from "@/lib/auth/session";
+import { requireAnySession } from "@/lib/auth/session";
 
 // ويبهوك تليجرام عام لكن محمي بسر التوقيع x-telegram-bot-api-secret-token داخل المسار نفسه
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/sso", "/api/widget-status", "/api/telegram/webhook"];
@@ -22,7 +22,7 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const session = await requireStaffSession(req);
+  const session = await requireAnySession(req);
   if (!session) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "لازم تسجّل دخولك أولاً" }, { status: 401 });
@@ -32,8 +32,10 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  // لوحة الإعدادات لموظفي Horizon الإداريين حصرًا — جلسة المستأجر لا
+  // تدخلها أبدًا مهما كانت (kind=customer لا يحمل role أصلًا).
   const needsAdmin = ADMIN_ONLY_PREFIXES.some(p => pathname === p || pathname.startsWith(`${p}/`));
-  if (needsAdmin && session.role !== "admin") {
+  if (needsAdmin && (session.kind !== "staff" || session.role !== "admin")) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "هذا القسم لمديري ألاء فقط" }, { status: 403 });
     }

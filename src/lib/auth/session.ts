@@ -10,10 +10,17 @@ import { db, schema } from "../db";
 import { verifyPassword } from "./password";
 
 export const SESSION_COOKIE = "alaa_staff_session";
+export const CUSTOMER_COOKIE = "alaa_customer_session";
 export const SESSION_MAX_AGE_SEC = 60 * 60 * 12; // ١٢ ساعة
 
 export type StaffRole = "support" | "admin";
 export type StaffSession = { id: number; email: string; name: string; role: StaffRole };
+
+// جلسة مستأجر (صاحب موقع على منصة Horizon-Saas) — مقفولة بنيويًا على
+// عميل ألاء الواحد الذي يطابق موقعه. كوكي منفصلة عن كوكي الموظفين عمدًا:
+// لا مسار كود واحد يخلط الاثنين بالغلط، وحذف إحداهما لا يمسّ الأخرى.
+export type CustomerSession = { kind: "customer"; customerId: number; email: string; name: string };
+export type AnySession = ({ kind: "staff" } & StaffSession) | CustomerSession;
 
 function b64urlFromBytes(bytes: Uint8Array): string {
   let bin = "";
@@ -114,8 +121,59 @@ export async function requireStaffSession(req: NextRequest): Promise<StaffSessio
   return verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value);
 }
 
+export async function createCustomerSessionToken(session: Omit<CustomerSession, "kind">): Promise<string> {
+  const payload = b64urlFromBytes(
+    new TextEncoder().encode(JSON.stringify({ kind: "customer", ...session, exp: Date.now() + SESSION_MAX_AGE_SEC * 1000 })),
+  );
+  return `${payload}.${await sign(payload)}`;
+}
+
+/**
+ * نفس مبدأ verifySessionToken حرفيًا: التوكن الموقَّع وحده لا يكفي —
+ * يُعاد الاستعلام عن صف العميل في كل طلب، فتعليق الاشتراك من لوحة
+ * الإدارة يقفل الجلسة فورًا لا بعد ١٢ ساعة.
+ */
+export async function verifyCustomerSessionToken(token: string | undefined): Promise<CustomerSession | null> {
+  if (!token) return null;
+  const [payload, sig] = token.split(".");
+  if (!payload || !sig) return null;
+  const key = await hmacKey();
+  const valid = await crypto.subtle.verify("HMAC", key, bytesFromB64url(sig), new TextEncoder().encode(payload));
+  if (!valid) return null;
+  let claimed: { kind?: string; customerId?: number; email?: string; exp?: number };
+  try {
+    claimed = JSON.parse(new TextDecoder().decode(bytesFromB64url(payload)));
+  } catch {
+    return null;
+  }
+  if (claimed.kind !== "customer" || !claimed.customerId || !claimed.email) return null;
+  if (!claimed.exp || Date.now() > claimed.exp) return null;
+
+  const rows = await db.select().from(schema.alaaCustomers).where(eq(schema.alaaCustomers.id, claimed.customerId)).limit(1);
+  const customer = rows[0];
+  if (!customer) return null;
+  if (customer.subscriptionStatus === "suspended" || customer.subscriptionStatus === "cancelled") return null;
+
+  return { kind: "customer", customerId: customer.id, email: claimed.email, name: customer.companyNameAr };
+}
+
+/** موظف أولاً ثم مستأجر — للمسارات المشتركة (المحادثة، قائمة العملاء، PDF) */
+export async function requireAnySession(req: NextRequest): Promise<AnySession | null> {
+  const staff = await requireStaffSession(req);
+  if (staff) return { kind: "staff", ...staff };
+  return verifyCustomerSessionToken(req.cookies.get(CUSTOMER_COOKIE)?.value);
+}
+
 /** للاستخدام داخل Server Components/Pages */
 export async function getStaffSession(): Promise<StaffSession | null> {
   const store = await cookies();
   return verifySessionToken(store.get(SESSION_COOKIE)?.value);
+}
+
+/** نظيرة requireAnySession داخل Server Components/Pages */
+export async function getAnySession(): Promise<AnySession | null> {
+  const store = await cookies();
+  const staff = await verifySessionToken(store.get(SESSION_COOKIE)?.value);
+  if (staff) return { kind: "staff", ...staff };
+  return verifyCustomerSessionToken(store.get(CUSTOMER_COOKIE)?.value);
 }

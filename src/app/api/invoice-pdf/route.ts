@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaffSession } from "@/lib/auth/session";
+import { requireAnySession } from "@/lib/auth/session";
 import { fetchInvoicePdf } from "@/lib/erp/invoicePdf";
 
 
@@ -8,10 +8,13 @@ import { fetchInvoicePdf } from "@/lib/erp/invoicePdf";
 // لصفحة تسجيل دخول ERPNext لا يملك بياناتها. ألاء نفسها (بحساب العميل
 // المتصل به) تجلب الملف وتُمرّره — الموظف لا يحتاج أي جلسة على ERPNext.
 export async function GET(req: NextRequest) {
-  const staff = await requireStaffSession(req);
-  if (!staff) return NextResponse.json({ error: "لازم تسجّل دخولك أولاً" }, { status: 401 });
+  const session = await requireAnySession(req);
+  if (!session) return NextResponse.json({ error: "لازم تسجّل دخولك أولاً" }, { status: 401 });
 
-  const customerId = Number(req.nextUrl.searchParams.get("customerId"));
+  // جلسة المستأجر مقفولة على عميلها — باراميتر customerId يُتجاهل تمامًا.
+  const customerId = session.kind === "customer"
+    ? session.customerId
+    : Number(req.nextUrl.searchParams.get("customerId"));
   const doctype = req.nextUrl.searchParams.get("doctype") ?? "Sales Invoice";
   const name = req.nextUrl.searchParams.get("name");
   if (!customerId || !name) {

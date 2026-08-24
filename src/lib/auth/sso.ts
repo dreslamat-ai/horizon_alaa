@@ -27,8 +27,18 @@ async function hmacHex(payload: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** يرجّع بريد المستخدم لو التوكن موقَّع صحيح ولم تنتهِ صلاحيته، وإلا null. */
-export async function verifySsoToken(token: string | null): Promise<string | null> {
+export type SsoIdentity = { email: string; site: string | null };
+
+/**
+ * يرجّع هوية التوكن لو موقَّع صحيح ولم تنتهِ صلاحيته، وإلا null.
+ *
+ * الصيغة الحالية `email|expiry|site` — الـsite جوّه التوقيع عمدًا: لما
+ * كان باراميتر URL منفصل، حامل توكن صادر من موقعه كان يقدر يبدّله باسم
+ * موقع مستأجر آخر وينتحل عميله. الصيغة القديمة `email|expiry` (نسخة
+ * alaa_widget قبل التحديث) لسه مقبولة لكن بـsite=null — تكفي دخول
+ * الموظفين ولا تكفي أبدًا إنشاء جلسة مستأجر.
+ */
+export async function verifySsoToken(token: string | null): Promise<SsoIdentity | null> {
   if (!token) return null;
   const [payloadB64, signature] = token.split(".");
   if (!payloadB64 || !signature) return null;
@@ -37,11 +47,11 @@ export async function verifySsoToken(token: string | null): Promise<string | nul
   const expectedSig = await hmacHex(payload);
   if (!timingSafeEqual(expectedSig, signature)) return null;
 
-  const [email, expiryStr] = payload.split("|");
+  const [email, expiryStr, site] = payload.split("|");
   const expiry = Number(expiryStr);
   if (!email || !Number.isFinite(expiry)) return null;
   if (Date.now() / 1000 > expiry) return null;
   if (expiry - Date.now() / 1000 > TOKEN_TTL_SECONDS + 5) return null; // توكن بتاريخ إصدار مستقبلي مريب
 
-  return email;
+  return { email, site: site || null };
 }

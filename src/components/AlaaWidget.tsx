@@ -156,6 +156,9 @@ export default function AlaaWidget() {
         const site = new URLSearchParams(window.location.search).get("site");
         const matches = site ? list.filter(c => c.erpUrl?.includes(site)) : [];
         if (matches.length === 1) setCustomerId(matches[0].id);
+        // جلسة مستأجر بترجع صفها هي فقط — لو الصفحة اتفتحت بلا ?site=
+        // (رابط محفوظ مثلًا) الصف الوحيد هو عميلها بلا لبس.
+        else if (list.length === 1) setCustomerId(list[0].id);
         setLoaded(true);
       });
   }, []);

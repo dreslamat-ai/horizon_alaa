@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { like } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { verifySsoToken } from "@/lib/auth/sso";
-import { createSessionToken, getActiveStaffByEmail, SESSION_COOKIE, SESSION_MAX_AGE_SEC } from "@/lib/auth/session";
+import {
+  createSessionToken, createCustomerSessionToken, getActiveStaffByEmail,
+  SESSION_COOKIE, CUSTOMER_COOKIE, SESSION_MAX_AGE_SEC,
+} from "@/lib/auth/session";
 
-// مستخدم Frappe غير مسجَّل في horizon_staff (زي العميل صاحب الموقع نفسه)
-// يوصله هنا بلا أي جلسة — التحويل النهائي لصفحة الدخول العادية، لا خطأ.
-//
 // عُطل حي (٢٠ أغسطس)، قيسناه بـ/api/debug-headers مؤقّت: في `next start`
 // خلف nginx، req.url/req.nextUrl.origin بيتبنيا من عنوان الـsocket
 // المحلي (127.0.0.1:4001) دايمًا — حتى لو هيدر Host/X-Forwarded-*
@@ -18,29 +20,68 @@ function absoluteUrl(req: NextRequest, path: string): URL {
   return new URL(`/alaa${path}`, `${proto}://${host}`);
 }
 
-export async function GET(req: NextRequest) {
-  const token = req.nextUrl.searchParams.get("token");
-  const site = req.nextUrl.searchParams.get("site");
-  const email = await verifySsoToken(token);
-
-  const loginUrl = absoluteUrl(req, "/login");
-  if (!email) return NextResponse.redirect(loginUrl);
-
-  const session = await getActiveStaffByEmail(email);
-  if (!session) return NextResponse.redirect(loginUrl);
-
-  // site معروف من مكان الفتح (زي e.horizonerp.cloud) — يُمرَّر للصفحة
-  // الرئيسية عشان تختار العميل المطابق تلقائيًا بدل ما تسأل الموظف.
-  const homeUrl = absoluteUrl(req, "/");
-  if (site) homeUrl.searchParams.set("site", site);
-
-  const res = NextResponse.redirect(homeUrl);
-  res.cookies.set(SESSION_COOKIE, await createSessionToken(session), {
+function sessionCookieOptions() {
+  return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     maxAge: SESSION_MAX_AGE_SEC,
     path: "/",
+  } as const;
+}
+
+/**
+ * مستأجر منصة Horizon-Saas: عميل ألاء الوحيد الذي يطابق موقعه.
+ * المطابقة على المضيف (host) لا النص الخام — erpUrl مخزَّن بالبروتوكول
+ * (https://mtc.horizonerp.cloud) وقد يحمل شرطة مائلة أخيرة.
+ */
+async function findCustomerBySite(site: string): Promise<typeof schema.alaaCustomers.$inferSelect | null> {
+  const rows = await db.select().from(schema.alaaCustomers)
+    .where(like(schema.alaaCustomers.erpUrl, `%${site}%`));
+  const matches = rows.filter(c => {
+    try { return new URL(c.erpUrl).host === site; } catch { return false; }
   });
-  return res;
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export async function GET(req: NextRequest) {
+  const token = req.nextUrl.searchParams.get("token");
+  const identity = await verifySsoToken(token);
+
+  const loginUrl = absoluteUrl(req, "/login");
+  if (!identity) return NextResponse.redirect(loginUrl);
+
+  // الـsite المعتمد هو الموقَّع داخل التوكن حصرًا. باراميتر ?site= في
+  // الرابط يُقبل فقط لعرض الواجهة عند موظف Horizon (توكن قديم الصيغة) —
+  // لا يدخل أبدًا في قرار "أي عميل تصير هذه الجلسة".
+  const signedSite = identity.site;
+  const displaySite = signedSite ?? req.nextUrl.searchParams.get("site");
+
+  const homeUrl = absoluteUrl(req, "/");
+  if (displaySite) homeUrl.searchParams.set("site", displaySite);
+
+  // موظف Horizon مسجَّل في horizon_staff — الأولوية له كما كانت دائمًا.
+  const staff = await getActiveStaffByEmail(identity.email);
+  if (staff) {
+    const res = NextResponse.redirect(homeUrl);
+    res.cookies.set(SESSION_COOKIE, await createSessionToken(staff), sessionCookieOptions());
+    return res;
+  }
+
+  // مستخدم مستأجر: جلسة مقفولة على عميل موقعه هو — بشرط site موقَّع.
+  if (signedSite) {
+    const customer = await findCustomerBySite(signedSite);
+    if (customer && customer.subscriptionStatus !== "suspended" && customer.subscriptionStatus !== "cancelled") {
+      const res = NextResponse.redirect(homeUrl);
+      res.cookies.set(
+        CUSTOMER_COOKIE,
+        await createCustomerSessionToken({ customerId: customer.id, email: identity.email, name: customer.companyNameAr }),
+        sessionCookieOptions(),
+      );
+      return res;
+    }
+  }
+
+  // لا موظف ولا عميل مطابق — صفحة الدخول العادية بلا أي جلسة ولا تسريب.
+  return NextResponse.redirect(loginUrl);
 }
