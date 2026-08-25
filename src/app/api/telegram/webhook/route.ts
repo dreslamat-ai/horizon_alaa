@@ -61,10 +61,39 @@ async function erpFetch(path: string, init?: RequestInit) {
   });
 }
 
-/** إيميل ⟵ هوية: موظف من horizon_staff أو عميل من Horizon ERP (Customer ثم Contact) */
-async function lookupIdentity(email: string): Promise<{ kind: "staff" | "customer"; name: string; erpCustomer?: string } | null> {
+type TgIdentity = { kind: "staff" | "customer" | "tenant"; name: string; erpCustomer?: string; alaaCustomerId?: number; planBlocked?: boolean };
+
+/** إيميل ⟵ هوية: موظف ⟵ مستخدم موقع مستأجر ⟵ عميل من Horizon ERP.
+ * ترتيب المستأجر قبل عميل هورايزون مقصود: صاحب موقع مستأجر هو نفسه
+ * عميل عند هورايزون (Contact على e) — ولو اتصنف عميلًا كان هياخد
+ * فواتيره من هورايزون بدل نظامه هو. */
+async function lookupIdentity(email: string): Promise<TgIdentity | null> {
   const staff = await db.select().from(schema.horizonStaff).where(eq(schema.horizonStaff.email, email)).limit(1);
   if (staff.length && staff[0].isActive) return { kind: "staff", name: staff[0].name };
+
+  // مستخدم موقع مستأجر: الإيميل User فعلي على نظام أحد عملاء ألاء
+  const candidates = await db.select().from(schema.alaaCustomers);
+  for (const c of candidates) {
+    if (c.subscriptionStatus === "suspended" || c.subscriptionStatus === "cancelled") continue;
+    if (c.id === ALAA_CUSTOMER_ID) continue; // نظام هورايزون نفسه — موظفوه فوق وعملاؤه تحت
+    try {
+      const cfg = await getErpConfigForCustomer(c.id);
+      const auth = await getErpAuthHeader(cfg);
+      const r = await fetch(`${cfg.url}/api/resource/User/${encodeURIComponent(email)}`, {
+        headers: { [auth.header]: auth.value },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!r.ok) continue;
+      const doc = ((await r.json()) as { data?: { enabled?: number; full_name?: string } }).data;
+      if (!doc || doc.enabled === 0) continue;
+      const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, c.planId)).limit(1);
+      return {
+        kind: "tenant", name: doc.full_name || c.companyNameAr, alaaCustomerId: c.id,
+        // بوابة الباقة: التجربة كلها مفتوحة، وبعدها البوت قدرة باقة الفريق الكامل
+        planBlocked: !(plan?.allowTelegram ?? false),
+      };
+    } catch { continue; }
+  }
 
   const f = (x: unknown) => encodeURIComponent(JSON.stringify(x));
   const direct = await erpFetch(`/api/resource/Customer?filters=${f([["email_id", "=", email]])}&fields=${f(["name", "customer_name"])}`);
@@ -242,34 +271,51 @@ async function runCustomerTool(name: string, args: Record<string, unknown>, erpC
 
 type Msg = { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string };
 
-async function alaaAnswer(userText: string, who: { kind: "staff" | "customer"; name: string; erpCustomer?: string }): Promise<string> {
-  const access = await assertAlaaAccessAllowed(ALAA_CUSTOMER_ID);
-  if (!access.ok) return "الخدمة موقوفة مؤقتًا — تواصل مع إدارة Horizon.";
+async function alaaAnswer(userText: string, who: { kind: "staff" | "customer" | "tenant"; name: string; erpCustomer?: string; alaaCustomerId?: number | null }): Promise<string> {
+  // المستأجر على نظامه هو حصرًا — والموظف/عميل هورايزون على نظام هورايزون
+  const isTenant = who.kind === "tenant" && !!who.alaaCustomerId;
+  const customerId = isTenant ? who.alaaCustomerId! : ALAA_CUSTOMER_ID;
 
-  let allowWrites = true; // الباقات نايمة — PLANS_ENFORCED=false بقرار المالك
-  if (PLANS_ENFORCED) try {
+  const access = await assertAlaaAccessAllowed(customerId);
+  if (!access.ok) {
+    if (isTenant && access.reason === "credits_exhausted") return "رصيدك من نقاط ألاء خلص 🌟 — اشحن من صفحة «اشتراكي والفواتير» في نظامك وهرجع أرد عليك فورًا.";
+    if (isTenant && access.reason === "subscription_expired") return "اشتراك ألاء انتهى — جدّده من صفحة «اشتراكي والفواتير» في نظامك وهرجع معاك على طول.";
+    return "الخدمة موقوفة مؤقتًا — تواصل مع إدارة Horizon.";
+  }
+
+  // قدرات الباقة تُنفَّذ على المستأجر دائمًا — وعلم PLANS_ENFORCED العام
+  // يخص موظفي Horizon وحدهم (نفس منطق مسار الويب حرفيًا)
+  const planEnforced = PLANS_ENFORCED || isTenant;
+  let allowWrites = true;
+  let allowDepartments = true;
+  if (planEnforced) try {
     const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, access.customer.planId)).limit(1);
     allowWrites = plan?.allowWrites ?? false;
-  } catch { allowWrites = false; }
-  if (!PLANS_ENFORCED) allowWrites = true;
+    allowDepartments = plan?.allowDepartments ?? false;
+    if (isTenant && !(plan?.allowTelegram ?? false)) {
+      return "بوت تليجرام من مزايا باقة «أعمال» 🌟 — رقّي باقتك من صفحة «اشتراكي والفواتير» وهيشتغل معاك فورًا.";
+    }
+  } catch { allowWrites = false; allowDepartments = false; }
+  if (!planEnforced) { allowWrites = true; allowDepartments = true; }
 
   const isCustomer = who.kind === "customer";
   const system = isCustomer
     ? `${identityLine}\n\nأنتِ الآن تخدمين العميل «${who.name}» عبر تليجرام. مسموح لكِ فقط بياناته هو (فواتيره) عبر أدواتك — أي طلب لبيانات غيره أو بيانات عامة عن النظام اعتذري عنه بلطف. الردود مختصرة ومناسبة لرسائل تليجرام (بلا جداول ماركداون).`
-    : `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **Horizon** (عبر تليجرام — الردود مختصرة وبلا جداول ماركداون، نقاط قصيرة بدلها).\n\n${modeRules(allowWrites)}`;
+    : `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${isTenant ? access.customer.companyNameAr : "Horizon"}** (عبر تليجرام — الردود مختصرة وبلا جداول ماركداون، نقاط قصيرة بدلها).\n\n${modeRules(allowWrites)}`;
 
   const messages: Msg[] = [{ role: "system", content: system }, { role: "user", content: userText }];
-  // البوت لموظفي Horizon على نظامهم — فريق الأقسام متاح دائمًا هنا
-  const tools = isCustomer ? CUSTOMER_TOOLS : toolsForPlan([...TOOLS], { allowWrites, allowDepartments: true });
+  const tools = isCustomer ? CUSTOMER_TOOLS : toolsForPlan([...TOOLS], { allowWrites, allowDepartments });
+  // نفس بوابة مسار الويب: أداة برّه القائمة المفلترة تترفض حتى لو الموديل ناداها
+  const availableToolNames = new Set<string>(tools.map(t => t.function.name));
 
-  return runWithCustomerConfig(ALAA_CUSTOMER_ID, async () => {
+  return runWithCustomerConfig(customerId, async () => {
     for (let i = 0; i < 5; i++) {
       const resp = await invokeAgentLLM({ messages: messages as never, tools: tools as never, tool_choice: "auto", max_tokens: 1200 });
       const msg = resp?.choices?.[0]?.message;
       if (!msg) return UNUSABLE_REPLY_FALLBACK;
       if (!msg.tool_calls?.length) {
         const text = sanitizeReply(typeof msg.content === "string" ? msg.content : "");
-        await deductCredits(ALAA_CUSTOMER_ID, MESSAGE_COST);
+        await deductCredits(customerId, MESSAGE_COST);
         return isUsableReply(text) ? text : UNUSABLE_REPLY_FALLBACK;
       }
       messages.push({ role: "assistant", content: "", tool_calls: msg.tool_calls });
@@ -277,6 +323,7 @@ async function alaaAnswer(userText: string, who: { kind: "staff" | "customer"; n
         const tcId = tc.id ?? `c${i}`;
         let out: string;
         try {
+          if (!availableToolNames.has(tc.function.name)) throw new Error(`الأداة "${tc.function.name}" غير متاحة في باقتك`);
           const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
           out = isCustomer
             ? await runCustomerTool(tc.function.name, args, who.erpCustomer ?? "")
@@ -384,6 +431,10 @@ export async function POST(req: NextRequest) {
           await say(chatId, "الإيميل ده مش مسجل عندنا — اتأكد منه أو تواصل مع فريق Horizon.");
           return NextResponse.json({ ok: true });
         }
+        if (identity.kind === "tenant" && identity.planBlocked) {
+          await say(chatId, "بوت تليجرام من مزايا باقة «أعمال» 🌟 — رقّي باقتك من صفحة «اشتراكي والفواتير» في نظامك وهيشتغل معاك فورًا.");
+          return NextResponse.json({ ok: true });
+        }
         const code = String(randomInt(100000, 999999));
         const sent = await sendOtpEmail(email, code);
         if (!sent) {
@@ -392,6 +443,7 @@ export async function POST(req: NextRequest) {
         }
         await upsertTg(chatId, {
           email, kind: identity.kind, erpCustomer: identity.erpCustomer ?? null,
+          alaaCustomerId: identity.alaaCustomerId ?? null,
           displayName: identity.name, otpHash: otpHashOf(code, chatId),
           otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), verifiedAt: null,
         });
@@ -437,7 +489,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    let answer = await alaaAnswer(text, { kind: u.kind ?? "customer", name: u.displayName ?? "", erpCustomer: u.erpCustomer ?? undefined });
+    let answer = await alaaAnswer(text, { kind: u.kind ?? "customer", name: u.displayName ?? "", erpCustomer: u.erpCustomer ?? undefined, alaaCustomerId: u.alaaCustomerId });
 
     // لو الرد فيه رابط PDF فاتورة: نزّل الملف وابعته مستندًا حقيقيًا في الشات
     const pdfMatch = answer.match(PDF_LINK_RE);
@@ -453,7 +505,8 @@ export async function POST(req: NextRequest) {
           const chk = await erpFetch(`/api/resource/Sales Invoice/${encodeURIComponent(invName)}`);
           allowed = chk.ok && (((await chk.json()) as { data?: { customer?: string } }).data?.customer === u.erpCustomer);
         }
-        const buf = allowed && invName ? await fetchInvoicePdf(ALAA_CUSTOMER_ID, invDoctype, invName) : null;
+        const pdfCustomerId = u.kind === "tenant" && u.alaaCustomerId ? u.alaaCustomerId : ALAA_CUSTOMER_ID;
+        const buf = allowed && invName ? await fetchInvoicePdf(pdfCustomerId, invDoctype, invName) : null;
         console.info("[tg-pdf] name:", invName, "| allowed:", allowed, "| buf:", buf?.length ?? null);
         if (buf) {
           // كتلة الماركداون كلها تتشال بما فيها أي دومين اخترعه الموديل حواليها

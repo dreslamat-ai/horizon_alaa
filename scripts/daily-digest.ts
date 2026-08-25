@@ -1,9 +1,13 @@
 // ─── الملخص اليومي الاستباقي — يُرسل صباحًا على بوت تليجرام ──────────────────
 // الميزة التنافسية ٣ (٢٤ أغسطس): لا منافس عربي عنده استباقية أصلًا.
-// يجمع: مبيعات أمس + المحصَّل + المتأخرات + المخزون المنخفض في رسالة
-// واحدة للموظفين الموثقين والمالك. يعمل بـcron (٧ صباح السعودية).
+// يجمع: مبيعات أمس + المحصَّل + المتأخرات + المخزون المنخفض في رسالة واحدة.
+//
+// ٢٥ أغسطس — بقى متعدد المستأجرين: ملخص هورايزون للموظفين والمالك (كما
+// كان)، وملخص لكل مستأجر باقتُه فيها allowDailyDigest وله شات تليجرام
+// موثَّق — كلٌّ من نظامه هو. وفي الآخر: إشعار للمالك بتجارب ألاء اللي
+// انتهت خلال آخر ٢٤ ساعة (متابعة بيع، لا أتمتة قرار).
 // التشغيل: npx tsx --env-file=.env.local scripts/daily-digest.ts
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "../src/lib/db";
 import { runWithCustomerConfig, erpGET } from "../src/lib/erp/erpClient";
 
@@ -13,11 +17,20 @@ const OWNER_CHAT = process.env.TG_OWNER_CHAT ?? "119770400";
 const f = (x: unknown) => encodeURIComponent(JSON.stringify(x));
 const sar = (n: number) => n.toLocaleString("ar-SA", { maximumFractionDigits: 0 });
 
-async function main() {
+async function send(chat: string, text: string) {
+  const token = process.env.TG_BOT_TOKEN;
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: chat, text }),
+  }).catch(e => console.error("فشل إرسال لـ", chat, e));
+}
+
+async function buildDigest(customerId: number): Promise<string> {
   const today = new Date().toISOString().split("T")[0];
   const yesterday = new Date(Date.now() - 864e5).toISOString().split("T")[0];
 
-  const digest = await runWithCustomerConfig(CUSTOMER_ID, async () => {
+  return runWithCustomerConfig(customerId, async () => {
     // مبيعات أمس (المعتمدة)
     const inv = await erpGET(`/api/resource/Sales Invoice?filters=${f([["docstatus", "=", 1], ["posting_date", "=", yesterday]])}&fields=${f(["grand_total"])}&limit_page_length=500`) as { data?: Array<{ grand_total: number }> };
     const invRows = inv?.data ?? [];
@@ -52,20 +65,55 @@ async function main() {
     msg += `\nاسألني عن أي تفصيلة 👇`;
     return msg;
   });
+}
 
-  // المستلمون: المالك + كل موظف موثَّق في البوت
+async function main() {
+  // ١) ملخص هورايزون — المالك + الموظفون الموثقون (السلوك الأصلي)
   const staff = await db.select().from(schema.alaaTgUsers).where(eq(schema.alaaTgUsers.kind, "staff"));
-  const targets = new Set<string>([OWNER_CHAT, ...staff.filter(s => s.verifiedAt).map(s => s.chatId)]);
-
-  const token = process.env.TG_BOT_TOKEN;
-  for (const chat of targets) {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chat, text: digest }),
-    }).catch(e => console.error("فشل إرسال لـ", chat, e));
+  const staffTargets = new Set<string>([OWNER_CHAT, ...staff.filter(s => s.verifiedAt).map(s => s.chatId)]);
+  try {
+    const digest = await buildDigest(CUSTOMER_ID);
+    for (const chat of staffTargets) await send(chat, digest);
+    console.log(`ملخص هورايزون أُرسل لـ${staffTargets.size} مستلم`);
+  } catch (e) {
+    console.error("فشل ملخص هورايزون:", e);
   }
-  console.log(`أُرسل الملخص لـ${targets.size} مستلم`);
+
+  // ٢) ملخص كل مستأجر باقته تشمله وله شات موثق — كلٌّ من نظامه هو،
+  // وفشل واحد لا يوقف الباقين
+  const customers = await db.select().from(schema.alaaCustomers);
+  for (const c of customers) {
+    if (c.id === CUSTOMER_ID) continue;
+    if (c.subscriptionStatus === "suspended" || c.subscriptionStatus === "cancelled") continue;
+    if (new Date(c.subscriptionEndDate).getTime() < Date.now()) continue;
+    const [plan] = await db.select().from(schema.alaaPlans).where(eq(schema.alaaPlans.id, c.planId)).limit(1);
+    if (!plan?.allowDailyDigest) continue;
+    const chats = await db.select().from(schema.alaaTgUsers)
+      .where(and(eq(schema.alaaTgUsers.kind, "tenant"), eq(schema.alaaTgUsers.alaaCustomerId, c.id)));
+    const verified = chats.filter(t => t.verifiedAt);
+    if (!verified.length) continue;
+    try {
+      const digest = await buildDigest(c.id);
+      for (const t of verified) await send(t.chatId, digest);
+      console.log(`ملخص ${c.companyNameAr} أُرسل لـ${verified.length} شات`);
+    } catch (e) {
+      console.error(`فشل ملخص ${c.companyNameAr}:`, e);
+    }
+  }
+
+  // ٣) تجارب ألاء اللي انتهت خلال آخر ٢٤ ساعة ⟵ إشعار متابعة للمالك
+  const dayAgo = Date.now() - 864e5;
+  const endedTrials = customers.filter(c =>
+    c.subscriptionStatus === "trial"
+    && new Date(c.subscriptionEndDate).getTime() < Date.now()
+    && new Date(c.subscriptionEndDate).getTime() >= dayAgo);
+  for (const c of endedTrials) {
+    await send(OWNER_CHAT,
+      `⏳ تجربة ألاء بتاعة «${c.companyNameAr}» انتهت النهارده\n`
+      + `الرصيد المتبقي وقت الانتهاء: ${c.creditsBalance} نقطة\n`
+      + `المحادثة عندهم متوقفة برسالة توجيه لصفحة الاشتراك — فرصة مكالمة بيع 📞`);
+  }
+  if (endedTrials.length) console.log(`إشعارات نهاية تجربة: ${endedTrials.length}`);
 }
 
 main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });

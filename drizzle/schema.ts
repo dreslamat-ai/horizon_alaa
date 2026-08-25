@@ -109,7 +109,10 @@ export const alaaMessages = sqliteTable("alaa_messages", {
 export const alaaTgUsers = sqliteTable("alaa_tg_users", {
   chatId: text("chat_id").primaryKey(),
   email: text("email"),
-  kind: text("kind", { enum: ["staff", "customer"] }),
+  // tenant = مستخدم موقع مستأجر (إيميله User فعلي على نظام أحد العملاء):
+  // بوابة باقة allowTelegram، وكل شغله على نظامه هو حصرًا
+  kind: text("kind", { enum: ["staff", "customer", "tenant"] }),
+  alaaCustomerId: integer("alaa_customer_id"),
   erpCustomer: text("erp_customer"),
   displayName: text("display_name"),
   otpHash: text("otp_hash"),
