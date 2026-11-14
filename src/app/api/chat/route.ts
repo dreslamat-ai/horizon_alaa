@@ -16,6 +16,7 @@ import { executeTool } from "@/lib/agent/executeTool";
 import { invokeAgentLLM } from "@/lib/llm/llmProvider";
 import { outcomeOf, verifyReply, summarizeOutcomes, type ToolOutcome } from "@/lib/agent/outcomeGuard";
 import { isUsableReply, sanitizeReply, UNUSABLE_REPLY_FALLBACK } from "@/lib/agent/replyGuard";
+import { normalizeLocale, uiText, type AlaaLocale } from "@/lib/agent/locale";
 
 type ChatMessage = { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string };
 
@@ -34,16 +35,23 @@ export async function POST(req: NextRequest) {
 
   // ─── الفحص الحاسم: قبل أي استدعاء لنموذج اللغة، لا بعده ───────────────────
   const access = await assertAlaaAccessAllowed(customerId);
+  // الترجمة حسب البلد: لهجة ألاء ورسائل الواجهة من نسخة العميل (alaa_customers.locale)
+  let locale: AlaaLocale = "ar-EG";
   if (!access.ok) {
+    try {
+      const [c] = await db.select({ locale: schema.alaaCustomers.locale }).from(schema.alaaCustomers).where(eq(schema.alaaCustomers.id, customerId)).limit(1);
+      locale = normalizeLocale(c?.locale);
+    } catch { /* المصري */ }
     const status = access.reason === "not_found" ? 404 : access.reason === "credits_exhausted" ? 402 : 403;
     const message = session.kind === "customer" && access.reason === "credits_exhausted"
-      ? "رصيدك من نقاط ألاء خلص — اشحن من صفحة «اشتراكي والفواتير» في نظامك وهرجع أرد عليك فورًا 🌟"
+      ? uiText("رصيدك من نقاط ألاء خلص — اشحن من صفحة «اشتراكي والفواتير» في نظامك وهرجع أرد عليك فورًا 🌟", locale)
       : session.kind === "customer" && access.reason === "subscription_expired"
-        ? "اشتراك ألاء انتهى — جدّده من صفحة «اشتراكي والفواتير» في نظامك وهرجع معاك على طول 🌟"
+        ? uiText("اشتراك ألاء انتهى — جدّده من صفحة «اشتراكي والفواتير» في نظامك وهرجع معاك على طول 🌟", locale)
         : access.message;
     return NextResponse.json({ error: message, reason: access.reason }, { status });
   }
   const customer = access.customer;
+  locale = normalizeLocale(customer.locale);
 
   // قدرات الباقة — نفس نمط سارة: القدرة قدرة اشتراك، والفشل في قراءتها
   // يسقط للأضيق (قراءة فقط، بلا فريق أقسام) لا للأوسع.
@@ -59,7 +67,8 @@ export async function POST(req: NextRequest) {
   }
   const allowWrites = features.allowWrites;
 
-  const systemPrompt = `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${customer.companyNameAr}**.\n\n${modeRules(allowWrites)}`;
+  const customerName = locale === "en" && customer.companyNameEn ? customer.companyNameEn : customer.companyNameAr;
+  const systemPrompt = `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${customerName}**.\n\n${modeRules(allowWrites, locale)}`;
   const llmMessages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
     ...body.messages,
@@ -87,7 +96,7 @@ export async function POST(req: NextRequest) {
 
         const msg = response?.choices?.[0]?.message;
         if (!msg) {
-          return NextResponse.json({ error: "أعاد النموذج استجابة فارغة — حاول تاني" }, { status: 502 });
+          return NextResponse.json({ error: uiText("أعاد النموذج استجابة فارغة — حاول تاني", locale) }, { status: 502 });
         }
 
         if (!msg.tool_calls || msg.tool_calls.length === 0) {
@@ -129,8 +138,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ reply: fallbackReply, toolResults, creditsBalance: customer.creditsBalance - MESSAGE_COST });
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "خطأ غير متوقع";
+    const message = e instanceof Error ? e.message : uiText("خطأ غير متوقع", locale);
     console.error("[alaa/chat]", message);
-    return NextResponse.json({ error: `عذراً، حصل عطل: ${message}` }, { status: 500 });
+    return NextResponse.json({ error: `${uiText("عذراً، حصل عطل:", locale)} ${message}` }, { status: 500 });
   }
 }

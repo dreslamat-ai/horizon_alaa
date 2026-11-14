@@ -37,6 +37,10 @@ export const alaaCustomers = sqliteTable("alaa_customers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   companyNameAr: text("company_name_ar").notNull(),
   companyNameEn: text("company_name_en"),
+  // الترجمة حسب البلد: نسخة الموقع التي رآها العميل عند التسجيل (ar-EG / ar-GCC / ar / en)
+  // — يرسلها provisioner منصة Horizon-Saas (saas_locale)، وتحدّد لهجة ردود ألاء
+  // ولغة رسائل الواجهة. null = المصري (السلوك القديم).
+  locale: text("locale"),
 
   // اتصال Horizon ERPNext الخاص بهذا العميل.
   //

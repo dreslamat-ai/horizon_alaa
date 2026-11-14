@@ -1,0 +1,1 @@
+ALTER TABLE `alaa_customers` ADD `locale` text;
