@@ -1,3 +1,4 @@
+import { languageRule, type AlaaLocale } from "@/lib/agent/locale";
 // ─── وضع الوكيل وحوكمته ─────────────────────────────────────────────────────
 // منقولة بتصرّف من almoaser-dev/server/agentModes.ts (قُرئت ١٩-٢٠ أغسطس
 // ٢٠٢٦). هناك وضعان (accounting/expert) لأن سارة تخدم محاسبين يكتبون
@@ -111,11 +112,10 @@ export const SCOPE_RULES = `
 
 إذا سُئلتِ عن شيء خارج النطاق: **اعتذري في سطر واحد وحوّلي الحديث لعملك.**
 
-## اللغة
-اكتبي بالعربية وحدها. المصطلحات التقنية وأسماء المستندات في Horizon ERP تُكتب بالإنجليزية عند الحاجة. **لا تُدخلي أي حرف من لغة ثالثة داخل النص.**
+{{LANGUAGE_RULE}}
 `.trim();
 
-export function modeRules(allowWrites = false): string {
+export function modeRules(allowWrites = false, locale: AlaaLocale = "ar-EG"): string {
   let gov = GOVERNANCE_RULES;
   let expert = EXPERT_RULES;
   if (allowWrites) {
@@ -130,7 +130,9 @@ export function modeRules(allowWrites = false): string {
       "أنت **مساعدة استعلام وتسجيل**: تقرئين البيانات وتسجّلين مستندات محددة (راجعي قسم تسجيل المستندات) — ولا حذف ولا إلغاء لأي مستند قائم، وإن طُلبا فاشرحي أنهما خارج نطاقك."
     );
   }
-  return `${SCOPE_RULES}\n\n${SYSTEM_REACH_RULES}\n\n${gov}\n\n${expert}\n\n${GUIDANCE_RULES}\n\n${TEAM_AND_EXPERT_RULES}${allowWrites ? `\n\n${WRITE_RULES}` : ""}`;
+  // قسم اللغة حسب نسخة العميل (الترجمة حسب البلد) — agent/locale.ts
+  const scope = SCOPE_RULES.replace("{{LANGUAGE_RULE}}", languageRule(locale));
+  return `${scope}\n\n${SYSTEM_REACH_RULES}\n\n${gov}\n\n${expert}\n\n${GUIDANCE_RULES}\n\n${TEAM_AND_EXPERT_RULES}${allowWrites ? `\n\n${WRITE_RULES}` : ""}`;
 }
 
 /**

@@ -37,11 +37,13 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     site?: string; companyNameAr?: string; companyNameEn?: string;
     apiKey?: string; apiSecret?: string; trialDays?: number; credits?: number;
+    locale?: string;   // الترجمة حسب البلد: ar-EG / ar-GCC / ar / en (نسخة الموقع عند التسجيل)
   } | null;
   if (!body?.site || !body.apiKey || !body.apiSecret) {
     return NextResponse.json({ error: "site وapiKey وapiSecret مطلوبون" }, { status: 400 });
   }
 
+  const locale = ["ar-EG", "ar-GCC", "ar", "en"].includes(body.locale ?? "") ? (body.locale as string) : null;
   const erpUrl = `https://${body.site.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
   const connection = {
     authType: "api_key" as const,
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
     // موقع سبق تجهيزه — تحديث الاتصال فقط (مفتاح اتجدد مثلًا)، بلا أي
     // مساس بالرصيد أو الاشتراك: إعادة تشغيل provisioner لا تمنح نقاطًا.
     await db.update(schema.alaaCustomers)
-      .set({ ...connection, updatedAt: new Date().toISOString() })
+      .set({ ...connection, ...(locale ? { locale } : {}), updatedAt: new Date().toISOString() })
       .where(eq(schema.alaaCustomers.id, existing.id));
     return NextResponse.json({ ok: true, customerId: existing.id, existing: true });
   }
@@ -73,6 +75,7 @@ export async function POST(req: NextRequest) {
   const [customer] = await db.insert(schema.alaaCustomers).values({
     companyNameAr: body.companyNameAr || body.site,
     companyNameEn: body.companyNameEn ?? null,
+    locale,
     ...connection,
     planId: plan.id,
     subscriptionStatus: "trial",

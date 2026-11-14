@@ -9,5 +9,10 @@ const sqlite = new Database(DB_PATH);
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("foreign_keys = ON");
 
+// ضمان عمود alaa_customers.locale على قواعد قائمة (migration 0001) — idempotent:
+// SQLite يرفض الإضافة المكرّرة بخطأ نبتلعه. لا يحلّ محل drizzle-kit migrate،
+// لكنه يمنع تعطّل /api/chat لو نُشر الكود قبل تشغيل الهجرة.
+try { sqlite.exec("ALTER TABLE alaa_customers ADD COLUMN locale text"); } catch { /* موجود */ }
+
 export const db = drizzle(sqlite, { schema });
 export { schema };
