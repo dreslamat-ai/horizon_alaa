@@ -12,9 +12,10 @@
 // واسم عميل يا غبي")، لكن بلا أي <select> أو قائمة يتفاعل معها أحد.
 import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/apiPath";
+import { normalizeLocale, uiText, type AlaaLocale } from "@/lib/agent/locale";
 
 type Msg = { role: "user" | "assistant" | "error"; content: string };
-type Customer = { id: number; companyNameAr: string; subscriptionStatus: string; creditsBalance: number; erpUrl?: string };
+type Customer = { id: number; companyNameAr: string; companyNameEn?: string | null; locale?: string | null; subscriptionStatus: string; creditsBalance: number; erpUrl?: string };
 
 // تغطي كل قدرات ألاء: بيانات حية · تحميل PDF · فتح شاشات · شرح خطوات
 const STARTERS = [
@@ -70,7 +71,7 @@ function formatInline(s: string): string {
   // (بلاغ حي بلقطة شاشة: رابط مبعثر غير قابل للضغط). يتحوّل لزرار تحميل.
   // شرط "ليس بعد فاصل SEP2" يمنع إعادة التقاط روابط الماركداون المحوَّلة فوق.
   linkified = linkified.replace(BARE_LINK_RE, (m: string, offset: number, full: string) =>
-    full[offset - 1] === SEP2 ? m : `${SEP1}⬇ تحميل الفاتورة PDF${SEP2}${withAlaaPrefix(m)}${SEP3}`);
+    full[offset - 1] === SEP2 ? m : `${SEP1}${PDF_LABEL}${SEP2}${withAlaaPrefix(m)}${SEP3}`);
   let h = escapeHtml(linkified);
   const linkRe = new RegExp(`${SEP1}([^${SEP2}]*)${SEP2}([^${SEP3}]*)${SEP3}`, "g");
   h = h.replace(linkRe, (_m, text: string, href: string) =>
@@ -182,6 +183,7 @@ export default function AlaaWidget() {
   }
 
   async function send(text: string) {
+    const W = (k: string) => uiText(k, normalizeLocale(customers.find(c => c.id === customerId)?.locale));
     const trimmed = text.trim();
     if (!trimmed || busy || !customerId) return;
     setShowChips(false);
@@ -200,7 +202,7 @@ export default function AlaaWidget() {
       });
       const data = (await res.json().catch(() => ({}))) as { reply?: string; error?: string; creditsBalance?: number };
       if (!res.ok) {
-        setMessages(m => [...m, { role: "error", content: data.error ?? "حصل خطأ. جرّب تاني." }]);
+        setMessages(m => [...m, { role: "error", content: data.error ?? W("حصل خطأ. جرّب تاني.") }]);
         return;
       }
       setMessages(m => [...m, { role: "assistant", content: data.reply ?? "" }]);
@@ -208,13 +210,19 @@ export default function AlaaWidget() {
         setCustomers(cs => cs.map(c => c.id === customerId ? { ...c, creditsBalance: data.creditsBalance! } : c));
       }
     } catch {
-      setMessages(m => [...m, { role: "error", content: "مش قادرة أوصل للسيرفر. اطمن على الاتصال." }]);
+      setMessages(m => [...m, { role: "error", content: W("مش قادرة أوصل للسيرفر. اطمن على الاتصال.") }]);
     } finally {
       setBusy(false);
     }
   }
 
   const currentCustomer = customers.find(c => c.id === customerId);
+  // الترجمة حسب البلد: نصوص الودجت بنسخة العميل (alaa_customers.locale)؛ المصري الأصل
+  const locale: AlaaLocale = normalizeLocale(currentCustomer?.locale);
+  const W = (k: string) => uiText(k, locale);
+  const isEn = locale === "en";
+  PDF_LABEL = W("⬇ تحميل الفاتورة PDF");
+  const companyName = (isEn && currentCustomer?.companyNameEn) || currentCustomer?.companyNameAr;
 
   return (
     <>
@@ -222,7 +230,7 @@ export default function AlaaWidget() {
         <button
           type="button"
           onClick={() => setOpen(o => !o)}
-          aria-label="تحدّث مع ألاء"
+          aria-label={W("تحدّث مع ألاء")}
           className="fixed bottom-5 z-50 w-14 h-14 rounded-full overflow-hidden shadow-lg hover:opacity-90 transition"
           style={{ insetInlineEnd: "20px" }}
         >
@@ -233,7 +241,8 @@ export default function AlaaWidget() {
       {open && (
         <div
           role="dialog"
-          aria-label="محادثة ألاء"
+          aria-label={W("محادثة ألاء")}
+          dir={isEn ? "ltr" : "rtl"}
           className={embedded
             ? "fixed inset-0 z-50 bg-white flex flex-col overflow-hidden"
             : "fixed bottom-24 z-50 w-[360px] max-w-[calc(100vw-32px)] h-[560px] max-h-[calc(100vh-120px)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"}
@@ -245,10 +254,10 @@ export default function AlaaWidget() {
             </div>
             <div className="flex-1">
               <b className="block text-[15px] leading-tight">ألاء</b>
-              <small className="opacity-75 text-[11.5px]">مساعدة Horizon الذكية</small>
+              <small className="opacity-75 text-[11.5px]">{W("مساعدة Horizon الذكية")}</small>
             </div>
             {!embedded && (
-              <button type="button" onClick={() => setOpen(false)} aria-label="إغلاق" className="text-white text-xl leading-none px-1">
+              <button type="button" onClick={() => setOpen(false)} aria-label={W("إغلاق")} className="text-white text-xl leading-none px-1">
                 ×
               </button>
             )}
@@ -256,21 +265,21 @@ export default function AlaaWidget() {
 
           {currentCustomer && (
             <div className="shrink-0 border-b border-[#e6eaf1] px-3.5 py-2.5 bg-[#f6f8fb] flex flex-col gap-1.5">
-              <div className="text-sm font-semibold text-[#1D2D44]">{currentCustomer.companyNameAr}</div>
+              <div className="text-sm font-semibold text-[#1D2D44]">{companyName}</div>
               <div className="text-[11px] text-gray-500 flex justify-between">
-                <span>رصيد النقاط: <b className="text-[#1D2D44]">{currentCustomer.creditsBalance}</b></span>
-                <span>{currentCustomer.subscriptionStatus === "active" ? "🟢 نشط" : currentCustomer.subscriptionStatus}</span>
+                <span>{W("رصيد النقاط:")} <b className="text-[#1D2D44]">{currentCustomer.creditsBalance}</b></span>
+                <span>{currentCustomer.subscriptionStatus === "active" ? W("🟢 نشط") : currentCustomer.subscriptionStatus}</span>
               </div>
             </div>
           )}
 
           <div ref={logRef} className="flex-1 overflow-y-auto p-3.5 bg-[#f6f8fb] flex flex-col gap-2.5">
             {loaded && !customerId && (
-              <div className="text-center text-sm text-gray-400 mt-8">مفيش اشتراك مفعَّل لهذا الموقع — تواصل مع إدارة Horizon</div>
+              <div className="text-center text-sm text-gray-400 mt-8">{W("مفيش اشتراك مفعَّل لهذا الموقع — تواصل مع إدارة Horizon")}</div>
             )}
             {customerId && messages.length === 0 && (
               <div className="max-w-[85%] rounded-2xl rounded-ss-sm bg-white border border-[#e6eaf1] px-3 py-2.5 text-[#1D2D44] leading-relaxed">
-                أهلاً 👋 أنا ألاء. اسألني عن أي بيانات في نظام {currentCustomer?.companyNameAr} وأجيبك فورًا.
+                {W("أهلاً 👋 أنا ألاء. اسألني عن أي بيانات في نظام")} {companyName} {W("وأجيبك فورًا.")}
               </div>
             )}
             {messages.map((m, i) => (
@@ -303,8 +312,8 @@ export default function AlaaWidget() {
           {showChips && customerId && messages.length === 0 && (
             <div className="px-3.5 pb-2.5 flex flex-wrap gap-1.5 bg-[#f6f8fb]">
               {STARTERS.map(t => (
-                <button key={t} type="button" onClick={() => send(t)} className="border border-[#cfd7e4] bg-white text-[#1D2D44] rounded-full px-3 py-1.5 text-xs hover:bg-[#eef2f8]">
-                  {t}
+                <button key={t} type="button" onClick={() => send(W(t))} className="border border-[#cfd7e4] bg-white text-[#1D2D44] rounded-full px-3 py-1.5 text-xs hover:bg-[#eef2f8]">
+                  {W(t)}
                 </button>
               ))}
             </div>
@@ -314,12 +323,12 @@ export default function AlaaWidget() {
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder={customerId ? "اكتب رسالتك…" : "مفيش اشتراك مفعَّل"}
+              placeholder={customerId ? W("اكتب رسالتك…") : W("مفيش اشتراك مفعَّل")}
               maxLength={1500}
               disabled={!customerId}
               className="flex-1 border border-[#dfe4ec] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#1D2D44] disabled:bg-gray-50"
             />
-            <button type="submit" disabled={busy || !input.trim() || !customerId} aria-label="إرسال" className="w-11 rounded-lg bg-[#1D2D44] text-white text-lg disabled:opacity-50">
+            <button type="submit" disabled={busy || !input.trim() || !customerId} aria-label={W("إرسال")} className="w-11 rounded-lg bg-[#1D2D44] text-white text-lg disabled:opacity-50">
               ➤
             </button>
           </form>

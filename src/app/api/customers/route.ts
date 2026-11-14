@@ -10,6 +10,8 @@ export async function GET(req: NextRequest) {
   const fields = {
     id: schema.alaaCustomers.id,
     companyNameAr: schema.alaaCustomers.companyNameAr,
+    companyNameEn: schema.alaaCustomers.companyNameEn,
+    locale: schema.alaaCustomers.locale, // الترجمة حسب البلد: لغة الودجت
     subscriptionStatus: schema.alaaCustomers.subscriptionStatus,
     creditsBalance: schema.alaaCustomers.creditsBalance,
     erpUrl: schema.alaaCustomers.erpUrl, // لمطابقة site الحالي واختيار العميل تلقائيًا

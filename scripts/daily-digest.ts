@@ -7,6 +7,7 @@
 // موثَّق — كلٌّ من نظامه هو. وفي الآخر: إشعار للمالك بتجارب ألاء اللي
 // انتهت خلال آخر ٢٤ ساعة (متابعة بيع، لا أتمتة قرار).
 // التشغيل: npx tsx --env-file=.env.local scripts/daily-digest.ts
+import { normalizeLocale, uiText, type AlaaLocale } from "../src/lib/agent/locale";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "../src/lib/db";
 import { runWithCustomerConfig, erpGET } from "../src/lib/erp/erpClient";
@@ -26,7 +27,9 @@ async function send(chat: string, text: string) {
   }).catch(e => console.error("فشل إرسال لـ", chat, e));
 }
 
-async function buildDigest(customerId: number): Promise<string> {
+async function buildDigest(customerId: number, loc: AlaaLocale = "ar-EG"): Promise<string> {
+  const T = (k: string) => uiText(k, loc);
+  const cur = T("ر.س");
   const today = new Date().toISOString().split("T")[0];
   const yesterday = new Date(Date.now() - 864e5).toISOString().split("T")[0];
 
@@ -52,17 +55,17 @@ async function buildDigest(customerId: number): Promise<string> {
     const bins = await erpGET(`/api/resource/Bin?fields=${f(["item_code", "actual_qty"])}&limit_page_length=500&order_by=actual_qty asc`) as { data?: Array<{ item_code: string; actual_qty: number }> };
     const low = (bins?.data ?? []).filter(b => (b.actual_qty ?? 0) <= 10).slice(0, 5);
 
-    let msg = `☀️ صباح الخير — ملخص ${yesterday}\n\n`;
-    msg += `💰 مبيعات أمس: ${sar(salesTotal)} ر.س (${invRows.length} فاتورة)\n`;
-    msg += `💵 المحصَّل أمس: ${sar(collected)} ر.س (${payRows.length} سند)\n`;
-    msg += `⏰ إجمالي المتأخرات: ${sar(overdueTotal)} ر.س على ${new Set(odRows.map(r => r.customer)).size} عميل\n`;
+    let msg = `${T("☀️ صباح الخير — ملخص")} ${yesterday}\n\n`;
+    msg += `${T("💰 مبيعات أمس:")} ${sar(salesTotal)} ${cur} (${invRows.length} ${T("فاتورة)")}\n`;
+    msg += `${T("💵 المحصَّل أمس:")} ${sar(collected)} ${cur} (${payRows.length} ${T("سند)")}\n`;
+    msg += `${T("⏰ إجمالي المتأخرات:")} ${sar(overdueTotal)} ${cur} ${T("على")} ${new Set(odRows.map(r => r.customer)).size} ${T("عميل")}\n`;
     if (topOverdue.length) {
-      msg += topOverdue.map(([c, amt]) => `   • ${c}: ${sar(amt)} ر.س`).join("\n") + "\n";
+      msg += topOverdue.map(([c, amt]) => `   • ${c}: ${sar(amt)} ${cur}`).join("\n") + "\n";
     }
     if (low.length) {
-      msg += `📦 مخزون منخفض: ${low.map(b => `${b.item_code} (${b.actual_qty})`).join(" · ")}\n`;
+      msg += `${T("📦 مخزون منخفض:")} ${low.map(b => `${b.item_code} (${b.actual_qty})`).join(" · ")}\n`;
     }
-    msg += `\nاسألني عن أي تفصيلة 👇`;
+    msg += `\n${T("اسألني عن أي تفصيلة 👇")}`;
     return msg;
   });
 }
@@ -93,7 +96,7 @@ async function main() {
     const verified = chats.filter(t => t.verifiedAt);
     if (!verified.length) continue;
     try {
-      const digest = await buildDigest(c.id);
+      const digest = await buildDigest(c.id, normalizeLocale(c.locale));
       for (const t of verified) await send(t.chatId, digest);
       console.log(`ملخص ${c.companyNameAr} أُرسل لـ${verified.length} شات`);
     } catch (e) {
