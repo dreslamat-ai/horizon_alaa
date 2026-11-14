@@ -13,6 +13,7 @@ import { runWithCustomerConfig } from "@/lib/erp/erpClient";
 import { getErpConfigForCustomer, getErpAuthHeader } from "@/lib/erp/erpConnection";
 import { assertAlaaAccessAllowed, deductCredits, MESSAGE_COST } from "@/lib/credits";
 import { modeRules, identityLine, toolsForPlan, PLANS_ENFORCED } from "@/lib/agent/agentModes";
+import { normalizeLocale, uiText, type AlaaLocale } from "@/lib/agent/locale";
 import { TOOLS } from "@/lib/agent/toolDefinitions";
 import { executeTool } from "@/lib/agent/executeTool";
 import { invokeAgentLLM } from "@/lib/llm/llmProvider";
@@ -22,10 +23,8 @@ import { fetchInvoicePdf } from "@/lib/erp/invoicePdf";
 const ALAA_CUSTOMER_ID = Number(process.env.TG_ALAA_CUSTOMER ?? 1);
 const OWNER_CHAT = process.env.TG_OWNER_CHAT ?? "119770400";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const REPORT_BTN = "🆕 تسجيل بلاغ";
-const CHAT_BTN = "💬 اسأل ألاء";
 
-type TgUpdate = { message?: { chat?: { id?: number }; from?: { first_name?: string }; text?: string; caption?: string; voice?: { file_id: string; duration?: number }; photo?: Array<{ file_id: string; width: number; height: number }>; document?: { file_id: string; mime_type?: string; file_name?: string } } };
+type TgUpdate = { message?: { chat?: { id?: number }; from?: { first_name?: string; language_code?: string }; text?: string; caption?: string; voice?: { file_id: string; duration?: number }; photo?: Array<{ file_id: string; width: number; height: number }>; document?: { file_id: string; mime_type?: string; file_name?: string } } };
 
 async function tg(method: string, payload: Record<string, unknown>) {
   const token = process.env.TG_BOT_TOKEN;
@@ -37,11 +36,30 @@ async function tg(method: string, payload: Record<string, unknown>) {
   });
 }
 
-function mainKeyboard() {
-  return { keyboard: [[{ text: CHAT_BTN }, { text: REPORT_BTN }]], resize_keyboard: true };
+// ─── الترجمة حسب البلد ─────────────────────────────────────────────────────────
+// المستأجر الموثق: نسخة عميله (alaa_customers.locale). قبل التوثيق أو لموظفي
+// Horizon وعملاء هورايزون: لغة تطبيق تليجرام عند المرسل — إنجليزية ⟵ en، وإلا المصري.
+const BTN_KEYS = { report: "🆕 تسجيل بلاغ", chat: "💬 اسأل ألاء" } as const;
+const ALL_REPORT_BTNS = new Set(["ar-EG", "ar-GCC", "ar", "en"].map(l => uiText(BTN_KEYS.report, l as AlaaLocale)));
+const ALL_CHAT_BTNS = new Set(["ar-EG", "ar-GCC", "ar", "en"].map(l => uiText(BTN_KEYS.chat, l as AlaaLocale)));
+
+async function tenantLocale(alaaCustomerId: number | null | undefined, fallback: AlaaLocale): Promise<AlaaLocale> {
+  if (!alaaCustomerId) return fallback;
+  try {
+    const [c] = await db.select({ locale: schema.alaaCustomers.locale }).from(schema.alaaCustomers).where(eq(schema.alaaCustomers.id, alaaCustomerId)).limit(1);
+    return c?.locale ? normalizeLocale(c.locale) : fallback;
+  } catch { return fallback; }
 }
 
-async function say(chatId: string, text: string, withKeyboard = false) {
+function senderLocale(update: TgUpdate | null): AlaaLocale {
+  return (update?.message?.from?.language_code ?? "").toLowerCase().startsWith("en") ? "en" : "ar-EG";
+}
+
+function mainKeyboard(loc: AlaaLocale = "ar-EG") {
+  return { keyboard: [[{ text: uiText(BTN_KEYS.chat, loc) }, { text: uiText(BTN_KEYS.report, loc) }]], resize_keyboard: true };
+}
+
+async function say(chatId: string, text: string, withKeyboard = false, loc: AlaaLocale = "ar-EG") {
   // تليجرام حده 4096 محرفًا، والجداول الماركداونية بتتبعتر — تُبسَّط لنص
   let clean = text.replace(/\*\*/g, "");
   // روابط الماركداون تظهر خامًا في تليجرام (بلاغ بلقطة شاشة): الداخلية
@@ -49,7 +67,7 @@ async function say(chatId: string, text: string, withKeyboard = false) {
   clean = clean.replace(/\[([^\]\n]{1,120})\]\((?:goto:[^)\n]*|(?:\/alaa)?\/api\/[^)\n]*)\)/g, "$1");
   clean = clean.replace(/\[([^\]\n]{1,120})\]\(([^)\n]{1,300})\)/g, "$1: $2");
   clean = clean.replace(/^\|(.+)\|$/gm, m => m.replace(/\s*\|\s*/g, "  ·  ").replace(/^ +·|· +$/g, "")).slice(0, 4000);
-  await tg("sendMessage", { chat_id: chatId, text: clean, ...(withKeyboard ? { reply_markup: mainKeyboard() } : {}) });
+  await tg("sendMessage", { chat_id: chatId, text: clean, ...(withKeyboard ? { reply_markup: mainKeyboard(loc) } : {}) });
 }
 
 async function erpFetch(path: string, init?: RequestInit) {
@@ -271,16 +289,17 @@ async function runCustomerTool(name: string, args: Record<string, unknown>, erpC
 
 type Msg = { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string };
 
-async function alaaAnswer(userText: string, who: { kind: "staff" | "customer" | "tenant"; name: string; erpCustomer?: string; alaaCustomerId?: number | null }): Promise<string> {
+async function alaaAnswer(userText: string, who: { kind: "staff" | "customer" | "tenant"; name: string; erpCustomer?: string; alaaCustomerId?: number | null }, loc: AlaaLocale = "ar-EG"): Promise<string> {
+  const T = (k: string) => uiText(k, loc);
   // المستأجر على نظامه هو حصرًا — والموظف/عميل هورايزون على نظام هورايزون
   const isTenant = who.kind === "tenant" && !!who.alaaCustomerId;
   const customerId = isTenant ? who.alaaCustomerId! : ALAA_CUSTOMER_ID;
 
   const access = await assertAlaaAccessAllowed(customerId);
   if (!access.ok) {
-    if (isTenant && access.reason === "credits_exhausted") return "رصيدك من نقاط ألاء خلص 🌟 — اشحن من صفحة «اشتراكي والفواتير» في نظامك وهرجع أرد عليك فورًا.";
-    if (isTenant && access.reason === "subscription_expired") return "اشتراك ألاء انتهى — جدّده من صفحة «اشتراكي والفواتير» في نظامك وهرجع معاك على طول.";
-    return "الخدمة موقوفة مؤقتًا — تواصل مع إدارة Horizon.";
+    if (isTenant && access.reason === "credits_exhausted") return T("رصيدك من نقاط ألاء خلص 🌟 — اشحن من صفحة «اشتراكي والفواتير» في نظامك وهرجع أرد عليك فورًا.");
+    if (isTenant && access.reason === "subscription_expired") return T("اشتراك ألاء انتهى — جدّده من صفحة «اشتراكي والفواتير» في نظامك وهرجع معاك على طول.");
+    return T("الخدمة موقوفة مؤقتًا — تواصل مع إدارة Horizon.");
   }
 
   // قدرات الباقة تُنفَّذ على المستأجر دائمًا — وعلم PLANS_ENFORCED العام
@@ -293,7 +312,7 @@ async function alaaAnswer(userText: string, who: { kind: "staff" | "customer" | 
     allowWrites = plan?.allowWrites ?? false;
     allowDepartments = plan?.allowDepartments ?? false;
     if (isTenant && !(plan?.allowTelegram ?? false)) {
-      return "بوت تليجرام من مزايا باقة «أعمال» 🌟 — رقّي باقتك من صفحة «اشتراكي والفواتير» وهيشتغل معاك فورًا.";
+      return T("بوت تليجرام من مزايا باقة «أعمال» 🌟 — رقّي باقتك من صفحة «اشتراكي والفواتير» وهيشتغل معاك فورًا.");
     }
   } catch { allowWrites = false; allowDepartments = false; }
   if (!planEnforced) { allowWrites = true; allowDepartments = true; }
@@ -301,7 +320,7 @@ async function alaaAnswer(userText: string, who: { kind: "staff" | "customer" | 
   const isCustomer = who.kind === "customer";
   const system = isCustomer
     ? `${identityLine}\n\nأنتِ الآن تخدمين العميل «${who.name}» عبر تليجرام. مسموح لكِ فقط بياناته هو (فواتيره) عبر أدواتك — أي طلب لبيانات غيره أو بيانات عامة عن النظام اعتذري عنه بلطف. الردود مختصرة ومناسبة لرسائل تليجرام (بلا جداول ماركداون).`
-    : `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${isTenant ? access.customer.companyNameAr : "Horizon"}** (عبر تليجرام — الردود مختصرة وبلا جداول ماركداون، نقاط قصيرة بدلها).\n\n${modeRules(allowWrites)}`;
+    : `${identityLine}\n\nالعميل الحالي الذي تخدمينه: **${isTenant ? ((loc === "en" && access.customer.companyNameEn) || access.customer.companyNameAr) : "Horizon"}** (عبر تليجرام — الردود مختصرة وبلا جداول ماركداون، نقاط قصيرة بدلها).\n\n${modeRules(allowWrites, loc)}`;
 
   const messages: Msg[] = [{ role: "system", content: system }, { role: "user", content: userText }];
   const tools = isCustomer ? CUSTOMER_TOOLS : toolsForPlan([...TOOLS], { allowWrites, allowDepartments });
@@ -367,11 +386,18 @@ export async function POST(req: NextRequest) {
   const chatIdNum = update?.message?.chat?.id;
   if (!chatIdNum) return NextResponse.json({ ok: true });
   const chatId = String(chatIdNum);
+  // نسخة المحادثة: عميل المستأجر الموثق إن وُجد، وإلا لغة تطبيق المرسل
+  let loc: AlaaLocale = senderLocale(update);
+  try {
+    const [pre] = await db.select().from(schema.alaaTgUsers).where(eq(schema.alaaTgUsers.chatId, chatId)).limit(1);
+    if (pre?.verifiedAt && pre.kind === "tenant") loc = await tenantLocale(pre.alaaCustomerId, loc);
+  } catch { /* المصري */ }
+  const T = (k: string) => uiText(k, loc);
 
   // التقاط المستندات المرسلة للبوت (قناة نقل ملفات أمينة بالبايت)
   if (update?.message?.document?.file_id) {
     console.info("[tg-file]", JSON.stringify({ chat: chatId, name: (update.message.document as { file_name?: string }).file_name, file_id: update.message.document.file_id }));
-    await say(chatId, "📎 استلمت الملف وحفظت مرجعه.");
+    await say(chatId, T("📎 استلمت الملف وحفظت مرجعه."));
     return NextResponse.json({ ok: true });
   }
 
@@ -381,10 +407,10 @@ export async function POST(req: NextRequest) {
   if (!text && update?.message?.voice?.file_id) {
     const heard = await transcribeVoice(update.message.voice.file_id).catch(() => null);
     if (!heard) {
-      await say(chatId, "ما قدرتش أسمع الرسالة — جرّب تاني أو اكتبها.");
+      await say(chatId, T("ما قدرتش أسمع الرسالة — جرّب تاني أو اكتبها."));
       return NextResponse.json({ ok: true });
     }
-    await say(chatId, `🎙️ سمعتك: «${heard}»`);
+    await say(chatId, `${T("🎙️ سمعتك:")} «${heard}»`);
     text = heard;
   }
 
@@ -393,18 +419,18 @@ export async function POST(req: NextRequest) {
     const rows0 = await db.select().from(schema.alaaTgUsers).where(eq(schema.alaaTgUsers.chatId, chatId)).limit(1);
     const u0 = rows0[0];
     if (!u0?.verifiedAt) {
-      await say(chatId, "وثّق دخولك الأول (ابعت إيميلك) وبعدها ابعت صورة الفاتورة.");
+      await say(chatId, T("وثّق دخولك الأول (ابعت إيميلك) وبعدها ابعت صورة الفاتورة."));
       return NextResponse.json({ ok: true });
     }
     if (u0.kind === "customer") {
-      await say(chatId, "تسجيل الفواتير من الصور متاح لفريق Horizon فقط حاليًا.");
+      await say(chatId, T("تسجيل الفواتير من الصور متاح لفريق Horizon فقط حاليًا."));
       return NextResponse.json({ ok: true });
     }
-    await say(chatId, "📷 استلمت الصورة — بقرأها…");
+    await say(chatId, T("📷 استلمت الصورة — بقرأها…"));
     const best = update.message.photo[update.message.photo.length - 1];
     const extracted = await extractInvoiceFromPhoto(best.file_id).catch(() => null);
     if (!extracted) {
-      await say(chatId, "ما قدرتش أقرأ الفاتورة من الصورة — جرّب صورة أوضح.");
+      await say(chatId, T("ما قدرتش أقرأ الفاتورة من الصورة — جرّب صورة أوضح."));
       return NextResponse.json({ ok: true });
     }
     const capt = (update.message.caption ?? "").trim();
@@ -419,7 +445,7 @@ export async function POST(req: NextRequest) {
 
     if (text === "/start" || !u) {
       await upsertTg(chatId, { mode: "chat" });
-      await say(chatId, `أهلاً ${update?.message?.from?.first_name ?? ""} 👋\nأنا ألاء — مساعدة Horizon الذكية.\n\nللبدء اكتب إيميلك المسجل عندنا، وهيوصلك رمز دخول عليه.`);
+      await say(chatId, `${T("أهلاً")} ${update?.message?.from?.first_name ?? ""} 👋\n${T("أنا ألاء — مساعدة Horizon الذكية.\n\nللبدء اكتب إيميلك المسجل عندنا، وهيوصلك رمز دخول عليه.")}`);
       return NextResponse.json({ ok: true });
     }
 
@@ -428,17 +454,17 @@ export async function POST(req: NextRequest) {
         const email = text.toLowerCase();
         const identity = await lookupIdentity(email);
         if (!identity) {
-          await say(chatId, "الإيميل ده مش مسجل عندنا — اتأكد منه أو تواصل مع فريق Horizon.");
+          await say(chatId, T("الإيميل ده مش مسجل عندنا — اتأكد منه أو تواصل مع فريق Horizon."));
           return NextResponse.json({ ok: true });
         }
         if (identity.kind === "tenant" && identity.planBlocked) {
-          await say(chatId, "بوت تليجرام من مزايا باقة «أعمال» 🌟 — رقّي باقتك من صفحة «اشتراكي والفواتير» في نظامك وهيشتغل معاك فورًا.");
+          await say(chatId, T("بوت تليجرام من مزايا باقة «أعمال» 🌟 — رقّي باقتك من صفحة «اشتراكي والفواتير» في نظامك وهيشتغل معاك فورًا."));
           return NextResponse.json({ ok: true });
         }
         const code = String(randomInt(100000, 999999));
         const sent = await sendOtpEmail(email, code);
         if (!sent) {
-          await say(chatId, "تعذّر إرسال الرمز حاليًا — جرّب بعد دقيقة.");
+          await say(chatId, T("تعذّر إرسال الرمز حاليًا — جرّب بعد دقيقة."));
           return NextResponse.json({ ok: true });
         }
         await upsertTg(chatId, {
@@ -447,33 +473,35 @@ export async function POST(req: NextRequest) {
           displayName: identity.name, otpHash: otpHashOf(code, chatId),
           otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), verifiedAt: null,
         });
-        await say(chatId, `بعتنا رمزًا من ٦ أرقام على ${email} — اكتبه هنا خلال ١٠ دقايق.`);
+        await say(chatId, `${T("بعتنا رمزًا من ٦ أرقام على")} ${email} ${T("— اكتبه هنا خلال ١٠ دقايق.")}`);
         return NextResponse.json({ ok: true });
       }
       if (/^\d{6}$/.test(text) && u.otpHash) {
         const expired = !u.otpExpiresAt || new Date(u.otpExpiresAt) < new Date();
         if (expired || otpHashOf(text, chatId) !== u.otpHash) {
-          await say(chatId, expired ? "الرمز انتهت صلاحيته — ابعت إيميلك تاني." : "الرمز غير صحيح — جرّب تاني.");
+          await say(chatId, expired ? T("الرمز انتهت صلاحيته — ابعت إيميلك تاني.") : T("الرمز غير صحيح — جرّب تاني."));
           return NextResponse.json({ ok: true });
         }
         await upsertTg(chatId, { verifiedAt: new Date().toISOString(), otpHash: null, otpExpiresAt: null, mode: "chat" });
-        const role = u.kind === "staff" ? "أهلاً بيك في فريق Horizon 💼" : `أهلاً بحضرتك — حساب «${u.displayName}»`;
-        await say(chatId, `تم التحقق ✅ ${role}\n\nاسألني عن بياناتك مباشرة، أو دوس «${REPORT_BTN}» لتسجيل شكوى/بلاغ يوصل الفريق فورًا.`, true);
+        // المستأجر صار موثقًا الآن — نسخة عميله تحكم من هذه الرسالة فصاعدًا
+        if (u.kind === "tenant") loc = await tenantLocale(u.alaaCustomerId, loc);
+        const role = u.kind === "staff" ? T("أهلاً بيك في فريق Horizon 💼") : `${T("أهلاً بحضرتك — حساب")} «${u.displayName}»`;
+        await say(chatId, `${T("تم التحقق ✅")} ${role}\n\n${T("اسألني عن بياناتك مباشرة، أو دوس «")}${uiText(BTN_KEYS.report, loc)}${T("» لتسجيل شكوى/بلاغ يوصل الفريق فورًا.")}`, true, loc);
         return NextResponse.json({ ok: true });
       }
-      await say(chatId, "اكتب إيميلك المسجل الأول عشان أبعتلك رمز الدخول.");
+      await say(chatId, T("اكتب إيميلك المسجل الأول عشان أبعتلك رمز الدخول."));
       return NextResponse.json({ ok: true });
     }
 
     // ─── موثَّق ───
-    if (text === REPORT_BTN || text === "/report") {
+    if (ALL_REPORT_BTNS.has(text) || text === "/report") {
       await upsertTg(chatId, { mode: "report" });
-      await say(chatId, "اكتب بلاغك في رسالة واحدة (المشكلة + أي تفاصيل تساعدنا)، وهيتسجل فورًا برقم متابعة.");
+      await say(chatId, T("اكتب بلاغك في رسالة واحدة (المشكلة + أي تفاصيل تساعدنا)، وهيتسجل فورًا برقم متابعة."));
       return NextResponse.json({ ok: true });
     }
-    if (text === CHAT_BTN) {
+    if (ALL_CHAT_BTNS.has(text)) {
       await upsertTg(chatId, { mode: "chat" });
-      await say(chatId, "اتفضل اسأل 👌", true);
+      await say(chatId, T("اتفضل اسأل 👌"), true, loc);
       return NextResponse.json({ ok: true });
     }
 
@@ -481,15 +509,15 @@ export async function POST(req: NextRequest) {
       const issue = await createIssue(text, { name: u.displayName ?? "", erpCustomer: u.erpCustomer ?? undefined }, u.email ?? "");
       await upsertTg(chatId, { mode: "chat" });
       if (!issue) {
-        await say(chatId, "تعذّر تسجيل البلاغ — جرّب تاني أو كلمنا مباشرة.", true);
+        await say(chatId, T("تعذّر تسجيل البلاغ — جرّب تاني أو كلمنا مباشرة."), true, loc);
         return NextResponse.json({ ok: true });
       }
-      await say(chatId, `اتسجل بلاغك برقم ${issue} ✅ الفريق هيتواصل معاك قريبًا.`, true);
+      await say(chatId, `${T("اتسجل بلاغك برقم")} ${issue} ${T("✅ الفريق هيتواصل معاك قريبًا.")}`, true, loc);
       await notifyStaff(`🔔 بلاغ جديد ${issue}\nمن: ${u.displayName} (${u.email})\n\n${text.slice(0, 500)}`);
       return NextResponse.json({ ok: true });
     }
 
-    let answer = await alaaAnswer(text, { kind: u.kind ?? "customer", name: u.displayName ?? "", erpCustomer: u.erpCustomer ?? undefined, alaaCustomerId: u.alaaCustomerId });
+    let answer = await alaaAnswer(text, { kind: u.kind ?? "customer", name: u.displayName ?? "", erpCustomer: u.erpCustomer ?? undefined, alaaCustomerId: u.alaaCustomerId }, loc);
 
     // لو الرد فيه رابط PDF فاتورة: نزّل الملف وابعته مستندًا حقيقيًا في الشات
     const pdfMatch = answer.match(PDF_LINK_RE);
@@ -514,9 +542,9 @@ export async function POST(req: NextRequest) {
             .replace(/\[[^\]\n]{1,120}\]\((?:https?:\/\/[^)\s]*)?(?:\/alaa)?\/api\/invoice-pdf[^)]*\)/g, "")
             .replace(PDF_LINK_RE, "")
             .replace(/\[([^\]]{1,120})\]\(\)/g, "")
-            .trim() || `فاتورة ${invName} — الملف مرفق 📄`;
-          await say(chatId, answer, true);
-          await sendPdfDocument(chatId, buf, `${invName}.pdf`, `فاتورة ${invName}`);
+            .trim() || `${T("فاتورة")} ${invName} ${T("— الملف مرفق 📄")}`;
+          await say(chatId, answer, true, loc);
+          await sendPdfDocument(chatId, buf, `${invName}.pdf`, `${T("فاتورة")} ${invName}`);
           console.info("[tg-pdf] أُرسل المستند");
           return NextResponse.json({ ok: true });
         }
@@ -524,18 +552,18 @@ export async function POST(req: NextRequest) {
         if (allowed && invName) {
           const st = await erpFetch(`/api/resource/Sales Invoice/${encodeURIComponent(invName)}?fields=${encodeURIComponent('["docstatus"]')}`);
           const ds = st.ok ? (((await st.json()) as { data?: { docstatus?: number } }).data?.docstatus ?? null) : null;
-          const why = ds === 2 ? `الفاتورة ${invName} ملغاة — مافيش ملف يتطبع ليها.` : `ما قدرتش أطلّع ملف ${invName} حاليًا — جرّب تاني أو من شاشة النظام.`;
-          await say(chatId, why, true);
+          const why = ds === 2 ? `${T("فاتورة")} ${invName} ${T("ملغاة — مافيش ملف يتطبع ليها.")}` : `${T("ما قدرتش أطلّع ملف")} ${invName} ${T("حاليًا — جرّب تاني أو من شاشة النظام.")}`;
+          await say(chatId, why, true, loc);
           return NextResponse.json({ ok: true });
         }
       } catch (e) { console.error("[tg-pdf] فشل:", e instanceof Error ? e.message : e); }
     }
 
-    await say(chatId, answer, true);
+    await say(chatId, answer, true, loc);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[tg-webhook]", e instanceof Error ? e.message : e);
-    await say(chatId, "حصل خطأ مؤقت — جرّب تاني.").catch(() => {});
+    await say(chatId, T("حصل خطأ مؤقت — جرّب تاني.")).catch(() => {});
     return NextResponse.json({ ok: true });
   }
 }
